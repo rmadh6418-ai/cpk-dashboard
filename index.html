@@ -25,7 +25,6 @@
         .chart-box { flex: 1; min-width: 400px; background: #fff; border: 1px solid #dee2e6; border-radius: 8px; padding: 10px; }
         .chart-full { width: 100%; background: #fff; border: 1px solid #dee2e6; border-radius: 8px; padding: 10px; margin-bottom: 20px; box-sizing: border-box; }
         
-        /* Grid layout for 'All Categories' view (여백 및 반응형 강화) */
         .all-categories-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 25px; }
         .small-chart-box { background: #fff; border: 1px solid #dee2e6; border-radius: 8px; padding: 10px; height: 380px; width: 100%; box-sizing: border-box; }
 
@@ -89,12 +88,10 @@
         </div>
     </div>
 
-    <!-- 전체 구분 비교 뷰 (히스토그램만 모아보기) -->
+    <!-- 전체 구분 비교 뷰 -->
     <div id="allCategoriesView" class="hidden">
         <h3 style="border-bottom: 2px solid #dee2e6; padding-bottom: 10px; margin-bottom:20px;">[전체 구분] 공정능력 히스토그램 요약</h3>
-        <div class="all-categories-grid" id="allChartsGrid">
-            <!-- 동적으로 차트 생성됨 -->
-        </div>
+        <div class="all-categories-grid" id="allChartsGrid"></div>
     </div>
 </div>
 
@@ -135,7 +132,6 @@
                         const cat = rows[row][col];
                         const val = rows[row][col + 1];
                         
-                        // 공백 제외 및 숫자만 철저하게 걸러서 담기 (에러 방어)
                         if (cat !== undefined && cat !== null && String(cat).trim() !== '') {
                             const numVal = parseFloat(val);
                             if (!isNaN(numVal)) {
@@ -204,7 +200,6 @@
         const sumSq = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0);
         let stdLT = Math.sqrt(sumSq / (values.length - 1));
         
-        // 데이터가 모두 같아서 표준편차가 0이 되는 오류 방지
         if (stdLT === 0 || isNaN(stdLT)) stdLT = 0.0001; 
 
         const pp = (USL - LSL) / (6 * stdLT);
@@ -233,7 +228,7 @@
 
             const grandMean = xbars.reduce((a,b)=>a+b,0) / xbars.length;
             let rBar = ranges.reduce((a,b)=>a+b,0) / ranges.length;
-            if (rBar === 0) rBar = 0.0001; // 에러 방지
+            if (rBar === 0) rBar = 0.0001; 
 
             const { d2, A2, D3, D4 } = controlConstants[n];
             
@@ -254,7 +249,7 @@
 
             const grandMean = individuals.reduce((a,b)=>a+b,0) / individuals.length;
             let mrBar = movingRanges.reduce((a,b)=>a+b,0) / movingRanges.length;
-            if (mrBar === 0) mrBar = 0.0001; // 에러 방지
+            if (mrBar === 0) mrBar = 0.0001; 
 
             const { d2, E2, D3, D4 } = controlConstants[n]; 
 
@@ -278,8 +273,15 @@
     }
 
     function drawHistogram(divId, values, mean, std, LSL, USL, category) {
-        const minVal = Math.min(...values, LSL) - (std * 2);
-        const maxVal = Math.max(...values, USL) + (std * 2);
+        // [핵심 수정] 데이터가 모두 동일해서 차트가 뻗는 현상을 방지하는 미세 조정(Jitter)
+        let plotValues = [...values];
+        if (Math.max(...plotValues) === Math.min(...plotValues)) {
+            plotValues[0] += 0.00001;
+            plotValues[plotValues.length - 1] -= 0.00001;
+        }
+
+        const minVal = Math.min(...plotValues, LSL) - (std * 2);
+        const maxVal = Math.max(...plotValues, USL) + (std * 2);
         const xCurve = [], yCurve = [];
         const step = (maxVal - minVal) / 100;
         
@@ -303,7 +305,7 @@
             ]
         };
         Plotly.newPlot(divId, [
-            { x: values, type: 'histogram', histnorm: 'probability density', marker: { color: '#4dabf7', line: {color: 'white', width:1} }, opacity: 0.7 },
+            { x: plotValues, type: 'histogram', histnorm: 'probability density', marker: { color: '#4dabf7', line: {color: 'white', width:1} }, opacity: 0.7 },
             { x: xCurve, y: yCurve, type: 'scatter', mode: 'lines', line: { color: '#343a40', width: 2 } }
         ], layout, {responsive: true});
     }
@@ -414,7 +416,6 @@
         Plotly.newPlot(divId, [{ x: xLen, y: movingRanges, type: 'scatter', mode: 'lines+markers', line: {color: '#fcc419'} }], layout, {responsive: true});
     }
 
-    // --- 전체 구분 모아보기 ---
     function drawAllCategories(LSL, USL) {
         const grid = document.getElementById('allChartsGrid');
         grid.innerHTML = ''; 
@@ -429,7 +430,6 @@
             const sumSq = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0);
             let std = Math.sqrt(sumSq / (values.length - 1));
             
-            // 산포가 0이라서 무한대 에러가 발생하는 것 완벽 차단
             if (std === 0 || isNaN(std)) std = 0.0001;
             
             const ppu = (USL - mean) / (3 * std);
@@ -442,11 +442,17 @@
             wrapDiv.id = divId;
             grid.appendChild(wrapDiv);
 
-            // 타이틀 상단 여백(margin: t)을 늘려 글자 잘림 완벽 방지
             const title = `<b>[${cat}]</b><br><span style="font-size:12px">Mean: ${mean.toFixed(3)} | Ppk: ${ppk.toFixed(3)}</span>`;
 
-            const minVal = Math.min(...values, LSL) - (std * 2);
-            const maxVal = Math.max(...values, USL) + (std * 2);
+            // [핵심 수정] 여기서도 Jitter 추가
+            let plotValues = [...values];
+            if (Math.max(...plotValues) === Math.min(...plotValues)) {
+                plotValues[0] += 0.00001;
+                plotValues[plotValues.length - 1] -= 0.00001;
+            }
+
+            const minVal = Math.min(...plotValues, LSL) - (std * 2);
+            const maxVal = Math.max(...plotValues, USL) + (std * 2);
             const xCurve = [], yCurve = [];
             const step = (maxVal - minVal) / 100;
             
@@ -457,7 +463,7 @@
 
             const layout = {
                 title: title,
-                margin: { t: 75, b: 40, l: 50, r: 30 }, // 모아보기 화면에서 Top(t) 마진 대폭 확대
+                margin: { t: 75, b: 40, l: 50, r: 30 }, 
                 showlegend: false,
                 xaxis: { tickformat: '.3f' },
                 shapes: [
@@ -466,9 +472,8 @@
                 ]
             };
             
-            // 모아보기 화면에서는 깔끔하게 보이도록 우상단 메뉴(modeBar) 숨김 및 반응형 처리
             Plotly.newPlot(divId, [
-                { x: values, type: 'histogram', histnorm: 'probability density', marker: { color: '#4dabf7', line: {color: 'white', width:1} }, opacity: 0.7 },
+                { x: plotValues, type: 'histogram', histnorm: 'probability density', marker: { color: '#4dabf7', line: {color: 'white', width:1} }, opacity: 0.7 },
                 { x: xCurve, y: yCurve, type: 'scatter', mode: 'lines', line: { color: '#343a40', width: 1.5 } }
             ], layout, { responsive: true, displayModeBar: false });
         });
