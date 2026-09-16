@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>공정능력(CPK) 대시보드</title>
+    <!-- 엑셀 파일을 읽기 위한 SheetJS 라이브러리 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- 차트를 그리기 위한 Plotly 라이브러리 -->
+    <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+    <style>
+        body { font-family: 'Malgun Gothic', sans-serif; padding: 20px; background-color: #f8f9fa; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .controls { display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; background: #f1f3f5; padding: 15px; border-radius: 8px; }
+        .control-group { display: flex; flex-direction: column; }
+        label { font-size: 13px; font-weight: bold; margin-bottom: 5px; color: #495057; }
+        input, select { padding: 8px; border: 1px solid #ced4da; border-radius: 4px; }
+        
+        .metrics { display: flex; gap: 20px; margin-bottom: 20px; }
+        .metric-card { flex: 1; background: #e9ecef; padding: 15px; border-radius: 8px; text-align: center; }
+        .metric-card h3 { margin: 0 0 10px 0; font-size: 14px; color: #495057; }
+        .metric-card p { margin: 0; font-size: 24px; font-weight: bold; color: #212529; }
+        
+        #chartDiv { width: 100%; height: 500px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2 style="margin-top:0;">📊 엑셀 연동 공정능력(CPK) 대시보드</h2>
+    
+    <div class="controls">
+        <div class="control-group">
+            <label>1. 엑셀 데이터 업로드 (.xlsx)</label>
+            <input type="file" id="excelFile" accept=".xlsx, .xls">
+        </div>
+        <div class="control-group">
+            <label>2. 분석할 구분 선택</label>
+            <select id="categorySelect" disabled>
+                <option>엑셀을 먼저 업로드하세요</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <label>LSL (하한규격)</label>
+            <input type="number" id="lsl" step="0.1" value="9.5">
+        </div>
+        <div class="control-group">
+            <label>USL (상한규격)</label>
+            <input type="number" id="usl" step="0.1" value="10.5">
+        </div>
+    </div>
+
+    <div class="metrics">
+        <div class="metric-card"><h3>평균 (Mean)</h3><p id="txt-mean">-</p></div>
+        <div class="metric-card"><h3>표준편차 (StDev)</h3><p id="txt-std">-</p></div>
+        <div class="metric-card"><h3>Cp</h3><p id="txt-cp">-</p></div>
+        <div class="metric-card"><h3>Cpk</h3><p id="txt-cpk">-</p></div>
+    </div>
+
+    <div id="chartDiv"></div>
+</div>
+
+<script>
+    let globalData = []; // 엑셀 데이터를 담을 전역 변수
+
+    // 1. 엑셀 파일 업로드 이벤트 처리
+    document.getElementById('excelFile').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, {type: 'array'});
+            
+            // 첫 번째 시트의 데이터를 JSON 형식으로 변환
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            globalData = XLSX.utils.sheet_to_json(worksheet);
+
+            // '구분' 목록 추출 및 드롭다운 생성
+            updateCategoryDropdown();
+        };
+        reader.readAsArrayBuffer(file);
+    });
+
+    // 2. 드롭다운 업데이트 및 이벤트 리스너 추가
+    function updateCategoryDropdown() {
+        // 엑셀에서 '구분' 컬럼의 고유값(중복제거) 추출
+        const categories = [...new Set(globalData.map(item => item['구분']))].filter(Boolean);
+        const select = document.getElementById('categorySelect');
+        
+        select.innerHTML = '';
+        categories.forEach(cat => {
+            let option = document.createElement('option');
+            option.value = cat;
+            option.textContent = cat;
+            select.appendChild(option);
+        });
+        
+        select.disabled = false;
+        
+        // 데이터가 준비되었으므로 첫 번째 항목으로 차트 그리기
+        updateDashboard();
+    }
+
+    document.getElementById('categorySelect').addEventListener('change', updateDashboard);
+    document.getElementById('lsl').addEventListener('input', updateDashboard);
+    document.getElementById('usl').addEventListener('input', updateDashboard);
+
+    // 3. 데이터 필터링, 공정능력 계산 및 차트 그리기
+    function updateDashboard() {
+        if(globalData.length === 0) return;
+
+        const selectedCategory = document.getElementById('categorySelect').value;
+        const LSL = parseFloat(document.getElementById('lsl').value);
+        const USL = parseFloat(document.getElementById('usl').value);
+
+        // 선택된 구분의 '측정값' 데이터만 필터링
+        const values = globalData.filter(item => item['구분'] === selectedCategory)
+                                 .map(item => parseFloat(item['측정값']))
+                                 .filter(val => !isNaN(val));
+
+        if (values.length === 0) {
+            alert("선택한 구분에 해당하는 '측정값' 데이터가 없습니다.");
+            return;
+        }
+
+        // 통계 계산
+        const mean = values.reduce((a, b) => a + b, 0) / values.length;
+        const sumSq = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0);
+        const std = Math.sqrt(sumSq / (values.length - 1)); // 표본표준편차
+
+        const cp = (USL - LSL) / (6 * std);
+        const cpu = (USL - mean) / (3 * std);
+        const cpl = (mean - LSL) / (3 * std);
+        const cpk = Math.min(cpu, cpl);
+
+        // 결과 지표 텍스트 업데이트
+        document.getElementById('txt-mean').textContent = mean.toFixed(3);
+        document.getElementById('txt-std').textContent = std.toFixed(3);
+        document.getElementById('txt-cp').textContent = cp.toFixed(3);
+        document.getElementById('txt-cpk').textContent = cpk.toFixed(3);
+
+        drawChart(values, mean, std, LSL, USL, selectedCategory);
+    }
+
+    // 4. Plotly를 활용한 차트 시각화
+    function drawChart(values, mean, std, LSL, USL, category) {
+        // 정규분포 곡선 데이터 생성
+        const minVal = Math.min(...values, LSL) - (std * 2);
+        const maxVal = Math.max(...values, USL) + (std * 2);
+        const xCurve = [];
+        const yCurve = [];
+        const step = (maxVal - minVal) / 100;
+        
+        for (let x = minVal; x <= maxVal; x += step) {
+            xCurve.push(x);
+            // 정규분포 확률밀도함수(PDF) 공식
+            let y = (1 / (std * Math.sqrt(2 * Math.PI))) * Math.exp(-0.5 * Math.pow((x - mean) / std, 2));
+            yCurve.push(y);
+        }
+
+        // Trace 1: 히스토그램 (확률밀도 기준)
+        const traceHist = {
+            x: values,
+            type: 'histogram',
+            histnorm: 'probability density',
+            name: '데이터 분포',
+            marker: { color: '#1f77b4', line: { color: 'white', width: 1 } },
+            opacity: 0.7
+        };
+
+        // Trace 2: 정규분포 곡선
+        const traceCurve = {
+            x: xCurve,
+            y: yCurve,
+            type: 'scatter',
+            mode: 'lines',
+            name: '정규분포',
+            line: { color: 'black', width: 2 }
+        };
+
+        const layout = {
+            title: `<b>[${category}] 공정능력 분포 차트</b>`,
+            xaxis: { title: '측정값' },
+            yaxis: { title: '밀도 (Density)' },
+            shapes: [
+                { type: 'line', x0: LSL, x1: LSL, y0: 0, y1: 1, yref: 'paper', line: { color: 'red', dash: 'dash', width: 2 } },
+                { type: 'line', x0: USL, x1: USL, y0: 0, y1: 1, yref: 'paper', line: { color: 'red', dash: 'dash', width: 2 } },
+                { type: 'line', x0: mean, x1: mean, y0: 0, y1: 1, yref: 'paper', line: { color: 'green', dash: 'dash', width: 2 } }
+            ],
+            annotations: [
+                { x: LSL, y: 1, yref: 'paper', text: `LSL (${LSL})`, showarrow: false, yanchor: 'bottom', font: {color: 'red'} },
+                { x: USL, y: 1, yref: 'paper', text: `USL (${USL})`, showarrow: false, yanchor: 'bottom', font: {color: 'red'} },
+                { x: mean, y: 0.9, yref: 'paper', text: `Mean`, showarrow: false, yanchor: 'bottom', font: {color: 'green'} }
+            ],
+            hovermode: 'closest',
+            margin: { t: 50, b: 50, l: 50, r: 50 }
+        };
+
+        Plotly.newPlot('chartDiv', [traceHist, traceCurve], layout);
+    }
+</script>
+
+</body>
+</html>
