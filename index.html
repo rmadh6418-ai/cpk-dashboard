@@ -25,11 +25,10 @@
         .chart-box { flex: 1; min-width: 400px; background: #fff; border: 1px solid #dee2e6; border-radius: 8px; padding: 10px; }
         .chart-full { width: 100%; background: #fff; border: 1px solid #dee2e6; border-radius: 8px; padding: 10px; margin-bottom: 20px; box-sizing: border-box; }
         
-        /* Grid layout for 'All Categories' view */
-        .all-categories-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px; }
-        .small-chart-box { background: #fff; border: 1px solid #dee2e6; border-radius: 8px; padding: 10px; height: 350px;}
+        /* Grid layout for 'All Categories' view (여백 및 반응형 강화) */
+        .all-categories-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 25px; }
+        .small-chart-box { background: #fff; border: 1px solid #dee2e6; border-radius: 8px; padding: 10px; height: 380px; width: 100%; box-sizing: border-box; }
 
-        /* Hide elements dynamically */
         .hidden { display: none !important; }
     </style>
 </head>
@@ -70,7 +69,6 @@
 
     <!-- 단일 구분 분석 뷰 -->
     <div id="singleCategoryView">
-        <!-- 결과 지표 -->
         <div class="metrics-grid">
             <div class="metric-card"><h3>전체 평균 (Mean)</h3><p id="txt-mean">-</p></div>
             <div class="metric-card"><h3>전체 표준편차 (LT)</h3><p id="txt-std-lt">-</p></div>
@@ -80,13 +78,11 @@
             <div class="metric-card highlight"><h3>Cpk (단기)</h3><p id="txt-cpk">-</p></div>
         </div>
 
-        <!-- 1열: 히스토그램 & 박스플롯 -->
         <div class="chart-row">
             <div class="chart-box" id="chartHist" style="height: 450px;"></div>
             <div class="chart-box" id="chartBox" style="height: 450px;"></div>
         </div>
         
-        <!-- 2열: 관리도 영역 (Xbar-R 또는 I-MR) -->
         <div id="controlChartsArea">
             <div class="chart-full" id="chartTop" style="height: 400px;"></div>
             <div class="chart-full" id="chartBottom" style="height: 400px;"></div>
@@ -100,15 +96,13 @@
             <!-- 동적으로 차트 생성됨 -->
         </div>
     </div>
-
 </div>
 
 <script>
     let globalData = []; 
 
-    // 관리도 계수표 (n=2 ~ 10)
     const controlConstants = {
-        2: { d2: 1.128, A2: 1.880, D3: 0, D4: 3.267, E2: 2.660 }, // E2 added for I-MR
+        2: { d2: 1.128, A2: 1.880, D3: 0, D4: 3.267, E2: 2.660 },
         3: { d2: 1.693, A2: 1.023, D3: 0, D4: 2.574 },
         4: { d2: 2.059, A2: 0.729, D3: 0, D4: 2.282 },
         5: { d2: 2.326, A2: 0.577, D3: 0, D4: 2.114 },
@@ -119,7 +113,6 @@
         10: { d2: 3.078, A2: 0.308, D3: 0.223, D4: 1.777 }
     };
 
-    // 공통 레이아웃 마진 설정 (왼쪽 마진을 늘려 잘림 방지)
     const commonMargin = { t: 50, b: 50, l: 80, r: 50 };
 
     document.getElementById('excelFile').addEventListener('change', function(e) {
@@ -142,9 +135,12 @@
                         const cat = rows[row][col];
                         const val = rows[row][col + 1];
                         
-                        if (cat !== undefined && cat !== null && String(cat).trim() !== '' && 
-                            val !== undefined && val !== null && val !== '') {
-                            globalData.push({ '구분': String(cat).trim(), '측정값': parseFloat(val) });
+                        // 공백 제외 및 숫자만 철저하게 걸러서 담기 (에러 방어)
+                        if (cat !== undefined && cat !== null && String(cat).trim() !== '') {
+                            const numVal = parseFloat(val);
+                            if (!isNaN(numVal)) {
+                                globalData.push({ '구분': String(cat).trim(), '측정값': numVal });
+                            }
                         }
                     }
                 }
@@ -157,17 +153,15 @@
     function updateCategoryDropdown() {
         const categories = [...new Set(globalData.map(item => item['구분']))];
         const select = document.getElementById('categorySelect');
-        select.innerHTML = '<option value="ALL">전체 구분 모아보기 (All)</option>'; // 전체 항목 추가
+        select.innerHTML = '<option value="ALL">전체 구분 모아보기 (All)</option>'; 
         categories.forEach(cat => {
             select.appendChild(new Option(cat, cat));
         });
         select.disabled = false;
         
-        // 처음 로드 시 첫 번째 개별 항목을 선택하도록 설정 (전체보기 방지용)
         if(categories.length > 0) {
              select.value = categories[0];
         }
-
         updateDashboard();
     }
 
@@ -185,7 +179,6 @@
         const LSL = parseFloat(document.getElementById('lsl').value);
         const USL = parseFloat(document.getElementById('usl').value);
         
-        // UI 토글 로직
         if (selectedCategory === "ALL") {
             document.getElementById('singleCategoryView').classList.add('hidden');
             document.getElementById('allCategoriesView').classList.remove('hidden');
@@ -197,7 +190,6 @@
             document.getElementById('singleCategoryView').classList.remove('hidden');
             document.getElementById('allCategoriesView').classList.add('hidden');
             document.getElementById('chartTypeGroup').classList.remove('hidden');
-            
             if(chartType === 'Xbar-R') {
                 document.getElementById('subgroupSizeGroup').classList.remove('hidden');
             } else {
@@ -208,25 +200,25 @@
         const values = globalData.filter(item => item['구분'] === selectedCategory).map(item => item['측정값']);
         if (values.length < 2) { alert(`데이터가 부족합니다. 최소 2개 이상의 데이터가 필요합니다.`); return; }
 
-        // --- 기초 통계 (전체 변동 기반 LT) ---
         const mean = values.reduce((a, b) => a + b, 0) / values.length;
         const sumSq = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0);
-        const stdLT = Math.sqrt(sumSq / (values.length - 1));
+        let stdLT = Math.sqrt(sumSq / (values.length - 1));
+        
+        // 데이터가 모두 같아서 표준편차가 0이 되는 오류 방지
+        if (stdLT === 0 || isNaN(stdLT)) stdLT = 0.0001; 
 
         const pp = (USL - LSL) / (6 * stdLT);
         const ppu = (USL - mean) / (3 * stdLT);
         const ppl = (mean - LSL) / (3 * stdLT);
         const ppk = Math.min(ppu, ppl);
 
-        let stdST = stdLT; // Default
+        let stdST = stdLT; 
         let cp = 0, cpk = 0;
 
-        // 차트 컨테이너 초기화
         Plotly.purge('chartTop');
         Plotly.purge('chartBottom');
 
         if (chartType === 'Xbar-R') {
-            // --- Xbar-R 관리도 및 단기 공정능력 ---
             let n = parseInt(document.getElementById('subgroupSize').value);
             if (n < 2) n = 2; if (n > 10) n = 10;
             if (values.length < n) { alert(`데이터가 부족합니다. 최소 ${n}개 이상의 데이터가 필요합니다.`); return; }
@@ -240,7 +232,9 @@
             }
 
             const grandMean = xbars.reduce((a,b)=>a+b,0) / xbars.length;
-            const rBar = ranges.reduce((a,b)=>a+b,0) / ranges.length;
+            let rBar = ranges.reduce((a,b)=>a+b,0) / ranges.length;
+            if (rBar === 0) rBar = 0.0001; // 에러 방지
+
             const { d2, A2, D3, D4 } = controlConstants[n];
             
             stdST = rBar / d2;
@@ -251,7 +245,6 @@
             drawRChart('chartBottom', ranges, rBar, D3, D4, selectedCategory);
 
         } else if (chartType === 'I-MR') {
-            // --- I-MR 관리도 및 단기 공정능력 (n=2 로 가정하여 이동범위 계산) ---
             const n = 2;
             const individuals = values;
             const movingRanges = [];
@@ -260,9 +253,10 @@
             }
 
             const grandMean = individuals.reduce((a,b)=>a+b,0) / individuals.length;
-            // MR의 평균 계산 시 주의: movingRanges 배열의 길이 사용
-            const mrBar = movingRanges.reduce((a,b)=>a+b,0) / movingRanges.length;
-            const { d2, E2, D3, D4 } = controlConstants[n]; // I-MR uses n=2 constants
+            let mrBar = movingRanges.reduce((a,b)=>a+b,0) / movingRanges.length;
+            if (mrBar === 0) mrBar = 0.0001; // 에러 방지
+
+            const { d2, E2, D3, D4 } = controlConstants[n]; 
 
             stdST = mrBar / d2;
             cp = (USL - LSL) / (6 * stdST);
@@ -272,7 +266,6 @@
             drawMRChart('chartBottom', movingRanges, mrBar, D3, D4, selectedCategory);
         }
 
-        // 지표 업데이트
         document.getElementById('txt-mean').textContent = mean.toFixed(4);
         document.getElementById('txt-std-lt').textContent = stdLT.toFixed(4);
         document.getElementById('txt-pp').textContent = pp.toFixed(3);
@@ -280,14 +273,11 @@
         document.getElementById('txt-cp').textContent = cp.toFixed(3);
         document.getElementById('txt-cpk').textContent = cpk.toFixed(3);
 
-        // 기본 차트 그리기
-        drawHistogram('chartHist', values, mean, stdLT, LSL, USL, selectedCategory, true);
+        drawHistogram('chartHist', values, mean, stdLT, LSL, USL, selectedCategory);
         drawBoxPlot('chartBox', values, selectedCategory);
     }
 
-    // --- 차트 그리기 함수들 ---
-
-    function drawHistogram(divId, values, mean, std, LSL, USL, category, showLegend) {
+    function drawHistogram(divId, values, mean, std, LSL, USL, category) {
         const minVal = Math.min(...values, LSL) - (std * 2);
         const maxVal = Math.max(...values, USL) + (std * 2);
         const xCurve = [], yCurve = [];
@@ -300,9 +290,9 @@
 
         const layout = {
             title: `<b>[${category}] 공정능력 히스토그램</b>`,
-            margin: commonMargin, // 여백 적용
+            margin: commonMargin, 
             showlegend: false,
-            xaxis: { tickformat: '.3f' }, // X축 소수점 3자리 고정
+            xaxis: { tickformat: '.3f' }, 
             shapes: [
                 { type: 'line', x0: LSL, x1: LSL, y0: 0, y1: 1, yref: 'paper', line: { color: 'red', dash: 'dash', width: 2 } },
                 { type: 'line', x0: USL, x1: USL, y0: 0, y1: 1, yref: 'paper', line: { color: 'red', dash: 'dash', width: 2 } }
@@ -315,7 +305,7 @@
         Plotly.newPlot(divId, [
             { x: values, type: 'histogram', histnorm: 'probability density', marker: { color: '#4dabf7', line: {color: 'white', width:1} }, opacity: 0.7 },
             { x: xCurve, y: yCurve, type: 'scatter', mode: 'lines', line: { color: '#343a40', width: 2 } }
-        ], layout);
+        ], layout, {responsive: true});
     }
 
     function drawBoxPlot(divId, values, category) {
@@ -323,21 +313,20 @@
             y: values, type: 'box', name: category, boxpoints: 'all', jitter: 0.3, pointpos: -1.8, marker: { color: '#3bc9db' }
         }], { 
             title: `<b>[${category}] Box Plot (데이터 산포)</b>`, 
-            margin: commonMargin, // 여백 적용
-            yaxis: { tickformat: '.3f' } // Y축 소수점 3자리 고정
-        });
+            margin: commonMargin,
+            yaxis: { tickformat: '.3f' } 
+        }, {responsive: true});
     }
 
-    // --- Xbar-R Charts ---
     function drawXbarChart(divId, xbars, grandMean, rBar, A2, category) {
         const ucl = grandMean + (A2 * rBar);
         const lcl = grandMean - (A2 * rBar);
         const xLen = xbars.map((_, i) => i + 1);
 
         const layout = {
-            title: `<b>[${category}] Xbar Chart (공정 평균 관리 - 부분군)</b>`,
-            margin: { t: 50, b: 50, l: 80, r: 80 }, // 오른쪽 여백도 확보하여 라벨 잘림 방지
-            yaxis: { tickformat: '.3f' }, // Y축 라벨 포맷 수정
+            title: `<b>[${category}] Xbar Chart (부분군 평균)</b>`,
+            margin: { t: 50, b: 50, l: 80, r: 80 }, 
+            yaxis: { tickformat: '.3f' }, 
             shapes: [
                 { type: 'line', x0: 1, x1: xbars.length, y0: ucl, y1: ucl, line: { color: 'red', width: 2 } },
                 { type: 'line', x0: 1, x1: xbars.length, y0: lcl, y1: lcl, line: { color: 'red', width: 2 } },
@@ -349,7 +338,7 @@
                 { x: xbars.length, y: grandMean, text: `CL=${grandMean.toFixed(3)}`, showarrow: false, xanchor: 'left', font: {size: 11} }
             ]
         };
-        Plotly.newPlot(divId, [{ x: xLen, y: xbars, type: 'scatter', mode: 'lines+markers', line: {color: '#228be6'} }], layout);
+        Plotly.newPlot(divId, [{ x: xLen, y: xbars, type: 'scatter', mode: 'lines+markers', line: {color: '#228be6'} }], layout, {responsive: true});
     }
 
     function drawRChart(divId, ranges, rBar, D3, D4, category) {
@@ -358,7 +347,7 @@
         const xLen = ranges.map((_, i) => i + 1);
 
         const layout = {
-            title: `<b>[${category}] R Chart (부분군 산포 관리)</b>`,
+            title: `<b>[${category}] R Chart (부분군 산포)</b>`,
             margin: { t: 50, b: 50, l: 80, r: 80 },
             yaxis: { tickformat: '.4f' },
             shapes: [
@@ -372,10 +361,9 @@
                 { x: ranges.length, y: rBar, text: `CL=${rBar.toFixed(4)}`, showarrow: false, xanchor: 'left', font: {size: 11} }
             ]
         };
-        Plotly.newPlot(divId, [{ x: xLen, y: ranges, type: 'scatter', mode: 'lines+markers', line: {color: '#fd7e14'} }], layout);
+        Plotly.newPlot(divId, [{ x: xLen, y: ranges, type: 'scatter', mode: 'lines+markers', line: {color: '#fd7e14'} }], layout, {responsive: true});
     }
 
-    // --- I-MR Charts ---
     function drawIChart(divId, individuals, grandMean, mrBar, E2, category) {
         const ucl = grandMean + (E2 * mrBar);
         const lcl = grandMean - (E2 * mrBar);
@@ -396,20 +384,19 @@
                 { x: individuals.length, y: grandMean, text: `CL=${grandMean.toFixed(3)}`, showarrow: false, xanchor: 'left', font: {size: 11} }
             ]
         };
-        Plotly.newPlot(divId, [{ x: xLen, y: individuals, type: 'scatter', mode: 'lines+markers', line: {color: '#845ef7'} }], layout);
+        Plotly.newPlot(divId, [{ x: xLen, y: individuals, type: 'scatter', mode: 'lines+markers', line: {color: '#845ef7'} }], layout, {responsive: true});
     }
 
     function drawMRChart(divId, movingRanges, mrBar, D3, D4, category) {
         const ucl = D4 * mrBar;
-        const lcl = D3 * mrBar; // Usually 0 for n=2
-        // MR 차트는 개별값 차트와 X축을 맞추기 위해 x를 2부터 시작
+        const lcl = D3 * mrBar;
         const xLen = movingRanges.map((_, i) => i + 2); 
 
         const layout = {
             title: `<b>[${category}] MR Chart (이동범위 관리)</b>`,
             margin: { t: 50, b: 50, l: 80, r: 80 },
             yaxis: { tickformat: '.4f' },
-            xaxis: { tick0: 1, dtick: 1 }, // X축 강제 1단위
+            xaxis: { tick0: 1, dtick: 1 }, 
             shapes: [
                 { type: 'line', x0: 2, x1: xLen[xLen.length-1], y0: ucl, y1: ucl, line: { color: 'red', width: 2 } },
                 { type: 'line', x0: 2, x1: xLen[xLen.length-1], y0: mrBar, y1: mrBar, line: { color: 'green', width: 2 } }
@@ -420,19 +407,17 @@
             ]
         };
         
-        // D3(LCL)이 0보다 큰 경우에만 LCL 선 그리기 (n=2일때는 보통 0이므로 생략)
         if(lcl > 0) {
             layout.shapes.push({ type: 'line', x0: 2, x1: xLen[xLen.length-1], y0: lcl, y1: lcl, line: { color: 'red', width: 2 } });
             layout.annotations.push({ x: xLen[xLen.length-1], y: lcl, text: `LCL=${lcl.toFixed(4)}`, showarrow: false, xanchor: 'left', font: {size: 11} });
         }
-
-        Plotly.newPlot(divId, [{ x: xLen, y: movingRanges, type: 'scatter', mode: 'lines+markers', line: {color: '#fcc419'} }], layout);
+        Plotly.newPlot(divId, [{ x: xLen, y: movingRanges, type: 'scatter', mode: 'lines+markers', line: {color: '#fcc419'} }], layout, {responsive: true});
     }
 
     // --- 전체 구분 모아보기 ---
     function drawAllCategories(LSL, USL) {
         const grid = document.getElementById('allChartsGrid');
-        grid.innerHTML = ''; // 초기화
+        grid.innerHTML = ''; 
 
         const categories = [...new Set(globalData.map(item => item['구분']))];
         
@@ -442,12 +427,14 @@
 
             const mean = values.reduce((a, b) => a + b, 0) / values.length;
             const sumSq = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0);
-            const std = Math.sqrt(sumSq / (values.length - 1));
+            let std = Math.sqrt(sumSq / (values.length - 1));
             
-            // Cpk 계산 (전체 편차 기반 Ppk와 동일하게 간이 계산)
-            const cpu = (USL - mean) / (3 * std);
-            const cpl = (mean - LSL) / (3 * std);
-            const cpk = Math.min(cpu, cpl);
+            // 산포가 0이라서 무한대 에러가 발생하는 것 완벽 차단
+            if (std === 0 || isNaN(std)) std = 0.0001;
+            
+            const ppu = (USL - mean) / (3 * std);
+            const ppl = (mean - LSL) / (3 * std);
+            const ppk = Math.min(ppu, ppl);
 
             const divId = `allChart_${index}`;
             const wrapDiv = document.createElement('div');
@@ -455,13 +442,14 @@
             wrapDiv.id = divId;
             grid.appendChild(wrapDiv);
 
-            // 차트 상단에 Cpk 정보 추가 표시를 위해 title 수정
-            const title = `<b>[${cat}]</b><br><span style="font-size:12px">Mean: ${mean.toFixed(3)} | Cpk: ${cpk.toFixed(3)}</span>`;
+            // 타이틀 상단 여백(margin: t)을 늘려 글자 잘림 완벽 방지
+            const title = `<b>[${cat}]</b><br><span style="font-size:12px">Mean: ${mean.toFixed(3)} | Ppk: ${ppk.toFixed(3)}</span>`;
 
             const minVal = Math.min(...values, LSL) - (std * 2);
             const maxVal = Math.max(...values, USL) + (std * 2);
             const xCurve = [], yCurve = [];
             const step = (maxVal - minVal) / 100;
+            
             for (let x = minVal; x <= maxVal; x += step) {
                 xCurve.push(x);
                 yCurve.push((1 / (std * Math.sqrt(2 * Math.PI))) * Math.exp(-0.5 * Math.pow((x - mean) / std, 2)));
@@ -469,7 +457,7 @@
 
             const layout = {
                 title: title,
-                margin: { t: 50, b: 30, l: 50, r: 20 },
+                margin: { t: 75, b: 40, l: 50, r: 30 }, // 모아보기 화면에서 Top(t) 마진 대폭 확대
                 showlegend: false,
                 xaxis: { tickformat: '.3f' },
                 shapes: [
@@ -478,10 +466,11 @@
                 ]
             };
             
+            // 모아보기 화면에서는 깔끔하게 보이도록 우상단 메뉴(modeBar) 숨김 및 반응형 처리
             Plotly.newPlot(divId, [
                 { x: values, type: 'histogram', histnorm: 'probability density', marker: { color: '#4dabf7', line: {color: 'white', width:1} }, opacity: 0.7 },
                 { x: xCurve, y: yCurve, type: 'scatter', mode: 'lines', line: { color: '#343a40', width: 1.5 } }
-            ], layout);
+            ], layout, { responsive: true, displayModeBar: false });
         });
     }
 </script>
