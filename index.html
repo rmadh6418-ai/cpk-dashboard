@@ -3,42 +3,42 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>공정능력(CPK) 대시보드</title>
-    <!-- 엑셀 파일을 읽기 위한 SheetJS 라이브러리 -->
+    <title>공정능력(CPK/PPK) 및 관리도 대시보드</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <!-- 차트를 그리기 위한 Plotly 라이브러리 -->
     <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
     <style>
         body { font-family: 'Malgun Gothic', sans-serif; padding: 20px; background-color: #f8f9fa; }
-        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        .controls { display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; background: #f1f3f5; padding: 15px; border-radius: 8px; }
+        .container { max-width: 1400px; margin: 0 auto; background: white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .controls { display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; background: #f1f3f5; padding: 15px; border-radius: 8px; }
         .control-group { display: flex; flex-direction: column; }
         label { font-size: 13px; font-weight: bold; margin-bottom: 5px; color: #495057; }
-        input, select { padding: 8px; border: 1px solid #ced4da; border-radius: 4px; }
+        input, select { padding: 8px; border: 1px solid #ced4da; border-radius: 4px; width: 140px;}
+        input[type="file"] { width: 220px; }
         
-        .metrics { display: flex; gap: 20px; margin-bottom: 20px; }
-        .metric-card { flex: 1; background: #e9ecef; padding: 15px; border-radius: 8px; text-align: center; }
-        .metric-card h3 { margin: 0 0 10px 0; font-size: 14px; color: #495057; }
-        .metric-card p { margin: 0; font-size: 24px; font-weight: bold; color: #212529; }
+        .metrics-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 15px; margin-bottom: 25px; }
+        .metric-card { background: #e9ecef; padding: 15px; border-radius: 8px; text-align: center; }
+        .metric-card.highlight { background: #d0ebff; border: 1px solid #74c0fc; }
+        .metric-card h3 { margin: 0 0 8px 0; font-size: 13px; color: #495057; }
+        .metric-card p { margin: 0; font-size: 20px; font-weight: bold; color: #212529; }
         
-        #chartDiv { width: 100%; height: 500px; }
+        .chart-row { display: flex; gap: 20px; margin-bottom: 20px; }
+        .chart-box { flex: 1; background: #fff; border: 1px solid #dee2e6; border-radius: 8px; padding: 10px; }
+        .chart-full { width: 100%; background: #fff; border: 1px solid #dee2e6; border-radius: 8px; padding: 10px; margin-bottom: 20px; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2 style="margin-top:0;">📊 엑셀 연동 공정능력(CPK) 대시보드</h2>
+    <h2 style="margin-top:0; color: #343a40;">📊 제조 품질 통합 대시보드 (CPK / PPK / Xbar-R)</h2>
     
     <div class="controls">
         <div class="control-group">
-            <label>1. 엑셀 데이터 업로드 (.xlsx)</label>
+            <label>1. 엑셀 업로드 (.xlsx)</label>
             <input type="file" id="excelFile" accept=".xlsx, .xls">
         </div>
         <div class="control-group">
-            <label>2. 분석할 구분 선택</label>
-            <select id="categorySelect" disabled>
-                <option>엑셀을 먼저 업로드하세요</option>
-            </select>
+            <label>2. 분석 그룹(구분)</label>
+            <select id="categorySelect" disabled><option>대기 중...</option></select>
         </div>
         <div class="control-group">
             <label>LSL (하한규격)</label>
@@ -48,22 +48,50 @@
             <label>USL (상한규격)</label>
             <input type="number" id="usl" step="0.1" value="10.5">
         </div>
+        <div class="control-group">
+            <label>부분군 크기 (n)</label>
+            <input type="number" id="subgroupSize" min="2" max="10" value="5">
+        </div>
     </div>
 
-    <div class="metrics">
-        <div class="metric-card"><h3>평균 (Mean)</h3><p id="txt-mean">-</p></div>
-        <div class="metric-card"><h3>표준편차 (StDev)</h3><p id="txt-std">-</p></div>
-        <div class="metric-card"><h3>Cp</h3><p id="txt-cp">-</p></div>
-        <div class="metric-card"><h3>Cpk</h3><p id="txt-cpk">-</p></div>
+    <!-- 결과 지표 -->
+    <div class="metrics-grid">
+        <div class="metric-card"><h3>전체 평균 (Mean)</h3><p id="txt-mean">-</p></div>
+        <div class="metric-card"><h3>전체 표준편차 (LT)</h3><p id="txt-std-lt">-</p></div>
+        <div class="metric-card highlight"><h3>Pp (장기)</h3><p id="txt-pp">-</p></div>
+        <div class="metric-card highlight"><h3>Ppk (장기)</h3><p id="txt-ppk">-</p></div>
+        <div class="metric-card highlight"><h3>Cp (단기)</h3><p id="txt-cp">-</p></div>
+        <div class="metric-card highlight"><h3>Cpk (단기)</h3><p id="txt-cpk">-</p></div>
     </div>
 
-    <div id="chartDiv"></div>
+    <!-- 1열: 히스토그램 & 박스플롯 -->
+    <div class="chart-row">
+        <div class="chart-box" id="chartHist" style="height: 400px;"></div>
+        <div class="chart-box" id="chartBox" style="height: 400px;"></div>
+    </div>
+    
+    <!-- 2열: 관리도 -->
+    <div class="chart-full" id="chartXbar" style="height: 350px;"></div>
+    <div class="chart-full" id="chartR" style="height: 350px;"></div>
 </div>
 
 <script>
-    let globalData = []; // 엑셀 데이터를 담을 전역 변수
+    let globalData = []; 
 
-    // 1. 엑셀 파일 업로드 이벤트 처리
+    // 관리도 계수표 (n=2 ~ 10)
+    const controlConstants = {
+        2: { d2: 1.128, A2: 1.880, D3: 0, D4: 3.267 },
+        3: { d2: 1.693, A2: 1.023, D3: 0, D4: 2.574 },
+        4: { d2: 2.059, A2: 0.729, D3: 0, D4: 2.282 },
+        5: { d2: 2.326, A2: 0.577, D3: 0, D4: 2.114 },
+        6: { d2: 2.534, A2: 0.483, D3: 0, D4: 2.004 },
+        7: { d2: 2.704, A2: 0.419, D3: 0.076, D4: 1.924 },
+        8: { d2: 2.847, A2: 0.373, D3: 0.136, D4: 1.864 },
+        9: { d2: 2.970, A2: 0.337, D3: 0.184, D4: 1.816 },
+        10: { d2: 3.078, A2: 0.308, D3: 0.223, D4: 1.777 }
+    };
+
+    // 1. 엑셀 파일 업로드 및 '가로(Wide) 형태' 파싱
     document.getElementById('excelFile').addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (!file) return;
@@ -72,134 +100,193 @@
         reader.onload = function(e) {
             const data = new Uint8Array(e.target.result);
             const workbook = XLSX.read(data, {type: 'array'});
+            const worksheet = workbook.Sheets[workbook.SheetNames[0]];
             
-            // 첫 번째 시트의 데이터를 JSON 형식으로 변환
-            const firstSheetName = workbook.SheetNames[0];
-            const worksheet = workbook.Sheets[firstSheetName];
-            globalData = XLSX.utils.sheet_to_json(worksheet);
+            // 데이터를 2차원 배열로 읽어옴 (header: 1)
+            const rows = XLSX.utils.sheet_to_json(worksheet, {header: 1});
+            globalData = [];
 
-            // '구분' 목록 추출 및 드롭다운 생성
+            // A, B / C, D / E, F ... 열을 2개씩 짝지어서 읽음
+            const maxCols = rows[0] ? rows[0].length : 0;
+            for (let col = 0; col < maxCols; col += 2) {
+                // 1행(index 0)은 제목(구분1, 측정값 등)이므로 2행(index 1)부터 데이터 읽기
+                for (let row = 1; row < rows.length; row++) {
+                    if (rows[row]) {
+                        const cat = rows[row][col];
+                        const val = rows[row][col + 1];
+                        
+                        // 구분과 측정값이 모두 존재하는 경우에만 데이터 삽입
+                        if (cat !== undefined && cat !== null && String(cat).trim() !== '' && 
+                            val !== undefined && val !== null && val !== '') {
+                            globalData.push({ '구분': String(cat).trim(), '측정값': parseFloat(val) });
+                        }
+                    }
+                }
+            }
             updateCategoryDropdown();
         };
         reader.readAsArrayBuffer(file);
     });
 
-    // 2. 드롭다운 업데이트 및 이벤트 리스너 추가
     function updateCategoryDropdown() {
-        // 엑셀에서 '구분' 컬럼의 고유값(중복제거) 추출
-        const categories = [...new Set(globalData.map(item => item['구분']))].filter(Boolean);
+        const categories = [...new Set(globalData.map(item => item['구분']))];
         const select = document.getElementById('categorySelect');
-        
         select.innerHTML = '';
         categories.forEach(cat => {
-            let option = document.createElement('option');
-            option.value = cat;
-            option.textContent = cat;
-            select.appendChild(option);
+            select.appendChild(new Option(cat, cat));
         });
-        
         select.disabled = false;
-        
-        // 데이터가 준비되었으므로 첫 번째 항목으로 차트 그리기
         updateDashboard();
     }
 
     document.getElementById('categorySelect').addEventListener('change', updateDashboard);
     document.getElementById('lsl').addEventListener('input', updateDashboard);
     document.getElementById('usl').addEventListener('input', updateDashboard);
+    document.getElementById('subgroupSize').addEventListener('change', updateDashboard);
 
-    // 3. 데이터 필터링, 공정능력 계산 및 차트 그리기
     function updateDashboard() {
         if(globalData.length === 0) return;
 
         const selectedCategory = document.getElementById('categorySelect').value;
         const LSL = parseFloat(document.getElementById('lsl').value);
         const USL = parseFloat(document.getElementById('usl').value);
+        let n = parseInt(document.getElementById('subgroupSize').value);
+        
+        if (n < 2) n = 2; if (n > 10) n = 10; // 관리도 상수는 n=2~10까지만 세팅됨
 
-        // 선택된 구분의 '측정값' 데이터만 필터링
-        const values = globalData.filter(item => item['구분'] === selectedCategory)
-                                 .map(item => parseFloat(item['측정값']))
-                                 .filter(val => !isNaN(val));
+        const values = globalData.filter(item => item['구분'] === selectedCategory).map(item => item['측정값']);
+        if (values.length < n) { alert(`데이터가 부족합니다. 최소 ${n}개 이상의 데이터가 필요합니다.`); return; }
 
-        if (values.length === 0) {
-            alert("선택한 구분에 해당하는 '측정값' 데이터가 없습니다.");
-            return;
-        }
-
-        // 통계 계산
+        // --- 기초 통계 (전체 변동 기반) ---
         const mean = values.reduce((a, b) => a + b, 0) / values.length;
         const sumSq = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0);
-        const std = Math.sqrt(sumSq / (values.length - 1)); // 표본표준편차
+        const stdLT = Math.sqrt(sumSq / (values.length - 1)); // 장기 표준편차 (Pp, Ppk 용)
 
-        const cp = (USL - LSL) / (6 * std);
-        const cpu = (USL - mean) / (3 * std);
-        const cpl = (mean - LSL) / (3 * std);
+        const pp = (USL - LSL) / (6 * stdLT);
+        const ppu = (USL - mean) / (3 * stdLT);
+        const ppl = (mean - LSL) / (3 * stdLT);
+        const ppk = Math.min(ppu, ppl);
+
+        // --- 관리도 부분군 연산 (단기 변동 기반) ---
+        const subgroups = [];
+        const xbars = [];
+        const ranges = [];
+
+        for (let i = 0; i <= values.length - n; i += n) {
+            const chunk = values.slice(i, i + n);
+            subgroups.push(chunk);
+            const xbar = chunk.reduce((a,b)=>a+b,0) / n;
+            const r = Math.max(...chunk) - Math.min(...chunk);
+            xbars.push(xbar);
+            ranges.push(r);
+        }
+
+        const grandMean = xbars.reduce((a,b)=>a+b,0) / xbars.length;
+        const rBar = ranges.reduce((a,b)=>a+b,0) / ranges.length;
+
+        // 상수 가져오기
+        const { d2, A2, D3, D4 } = controlConstants[n];
+        
+        const stdST = rBar / d2; // 단기 표준편차 (R-bar 기반, Cp, Cpk 용)
+        
+        const cp = (USL - LSL) / (6 * stdST);
+        const cpu = (USL - grandMean) / (3 * stdST);
+        const cpl = (grandMean - LSL) / (3 * stdST);
         const cpk = Math.min(cpu, cpl);
 
-        // 결과 지표 텍스트 업데이트
+        // 지표 업데이트
         document.getElementById('txt-mean').textContent = mean.toFixed(3);
-        document.getElementById('txt-std').textContent = std.toFixed(3);
+        document.getElementById('txt-std-lt').textContent = stdLT.toFixed(3);
+        document.getElementById('txt-pp').textContent = pp.toFixed(3);
+        document.getElementById('txt-ppk').textContent = ppk.toFixed(3);
         document.getElementById('txt-cp').textContent = cp.toFixed(3);
         document.getElementById('txt-cpk').textContent = cpk.toFixed(3);
 
-        drawChart(values, mean, std, LSL, USL, selectedCategory);
+        // 차트 그리기
+        drawHistogram(values, mean, stdLT, LSL, USL, selectedCategory);
+        drawBoxPlot(values, selectedCategory);
+        drawXbarChart(xbars, grandMean, rBar, A2, selectedCategory);
+        drawRChart(ranges, rBar, D3, D4, selectedCategory);
     }
 
-    // 4. Plotly를 활용한 차트 시각화
-    function drawChart(values, mean, std, LSL, USL, category) {
-        // 정규분포 곡선 데이터 생성
+    // 1. 히스토그램 + 정규분포
+    function drawHistogram(values, mean, std, LSL, USL, category) {
         const minVal = Math.min(...values, LSL) - (std * 2);
         const maxVal = Math.max(...values, USL) + (std * 2);
-        const xCurve = [];
-        const yCurve = [];
+        const xCurve = [], yCurve = [];
         const step = (maxVal - minVal) / 100;
         
         for (let x = minVal; x <= maxVal; x += step) {
             xCurve.push(x);
-            // 정규분포 확률밀도함수(PDF) 공식
-            let y = (1 / (std * Math.sqrt(2 * Math.PI))) * Math.exp(-0.5 * Math.pow((x - mean) / std, 2));
-            yCurve.push(y);
+            yCurve.push((1 / (std * Math.sqrt(2 * Math.PI))) * Math.exp(-0.5 * Math.pow((x - mean) / std, 2)));
         }
 
-        // Trace 1: 히스토그램 (확률밀도 기준)
-        const traceHist = {
-            x: values,
-            type: 'histogram',
-            histnorm: 'probability density',
-            name: '데이터 분포',
-            marker: { color: '#1f77b4', line: { color: 'white', width: 1 } },
-            opacity: 0.7
-        };
-
-        // Trace 2: 정규분포 곡선
-        const traceCurve = {
-            x: xCurve,
-            y: yCurve,
-            type: 'scatter',
-            mode: 'lines',
-            name: '정규분포',
-            line: { color: 'black', width: 2 }
-        };
-
         const layout = {
-            title: `<b>[${category}] 공정능력 분포 차트</b>`,
-            xaxis: { title: '측정값' },
-            yaxis: { title: '밀도 (Density)' },
+            title: `<b>[${category}] 공정능력 히스토그램</b>`,
+            margin: { t: 40, b: 30, l: 40, r: 20 },
+            showlegend: false,
             shapes: [
                 { type: 'line', x0: LSL, x1: LSL, y0: 0, y1: 1, yref: 'paper', line: { color: 'red', dash: 'dash', width: 2 } },
-                { type: 'line', x0: USL, x1: USL, y0: 0, y1: 1, yref: 'paper', line: { color: 'red', dash: 'dash', width: 2 } },
-                { type: 'line', x0: mean, x1: mean, y0: 0, y1: 1, yref: 'paper', line: { color: 'green', dash: 'dash', width: 2 } }
+                { type: 'line', x0: USL, x1: USL, y0: 0, y1: 1, yref: 'paper', line: { color: 'red', dash: 'dash', width: 2 } }
+            ]
+        };
+        Plotly.newPlot('chartHist', [
+            { x: values, type: 'histogram', histnorm: 'probability density', marker: { color: '#4dabf7', line: {color: 'white', width:1} }, opacity: 0.7 },
+            { x: xCurve, y: yCurve, type: 'scatter', mode: 'lines', line: { color: '#343a40', width: 2 } }
+        ], layout);
+    }
+
+    // 2. 박스 플롯 (Box Plot)
+    function drawBoxPlot(values, category) {
+        Plotly.newPlot('chartBox', [{
+            y: values, type: 'box', name: category, boxpoints: 'all', jitter: 0.3, pointpos: -1.8, marker: { color: '#3bc9db' }
+        }], { title: `<b>[${category}] Box Plot (데이터 산포)</b>`, margin: { t: 40, b: 30, l: 40, r: 20 } });
+    }
+
+    // 3. Xbar 관리도
+    function drawXbarChart(xbars, grandMean, rBar, A2, category) {
+        const ucl = grandMean + (A2 * rBar);
+        const lcl = grandMean - (A2 * rBar);
+        const xLen = xbars.map((_, i) => i + 1);
+
+        const layout = {
+            title: `<b>[${category}] Xbar Chart (공정 평균 관리)</b>`,
+            margin: { t: 40, b: 30, l: 40, r: 40 },
+            shapes: [
+                { type: 'line', x0: 1, x1: xbars.length, y0: ucl, y1: ucl, line: { color: 'red', width: 2 } },
+                { type: 'line', x0: 1, x1: xbars.length, y0: lcl, y1: lcl, line: { color: 'red', width: 2 } },
+                { type: 'line', x0: 1, x1: xbars.length, y0: grandMean, y1: grandMean, line: { color: 'green', width: 2 } }
             ],
             annotations: [
-                { x: LSL, y: 1, yref: 'paper', text: `LSL (${LSL})`, showarrow: false, yanchor: 'bottom', font: {color: 'red'} },
-                { x: USL, y: 1, yref: 'paper', text: `USL (${USL})`, showarrow: false, yanchor: 'bottom', font: {color: 'red'} },
-                { x: mean, y: 0.9, yref: 'paper', text: `Mean`, showarrow: false, yanchor: 'bottom', font: {color: 'green'} }
-            ],
-            hovermode: 'closest',
-            margin: { t: 50, b: 50, l: 50, r: 50 }
+                { x: xbars.length, y: ucl, text: `UCL=${ucl.toFixed(2)}`, showarrow: false, xanchor: 'left' },
+                { x: xbars.length, y: lcl, text: `LCL=${lcl.toFixed(2)}`, showarrow: false, xanchor: 'left' },
+                { x: xbars.length, y: grandMean, text: `CL=${grandMean.toFixed(2)}`, showarrow: false, xanchor: 'left' }
+            ]
         };
+        Plotly.newPlot('chartXbar', [{ x: xLen, y: xbars, type: 'scatter', mode: 'lines+markers', line: {color: '#228be6'} }], layout);
+    }
 
-        Plotly.newPlot('chartDiv', [traceHist, traceCurve], layout);
+    // 4. R 관리도
+    function drawRChart(ranges, rBar, D3, D4, category) {
+        const ucl = D4 * rBar;
+        const lcl = D3 * rBar;
+        const xLen = ranges.map((_, i) => i + 1);
+
+        const layout = {
+            title: `<b>[${category}] R Chart (공정 산포 관리)</b>`,
+            margin: { t: 40, b: 30, l: 40, r: 40 },
+            shapes: [
+                { type: 'line', x0: 1, x1: ranges.length, y0: ucl, y1: ucl, line: { color: 'red', width: 2 } },
+                { type: 'line', x0: 1, x1: ranges.length, y0: lcl, y1: lcl, line: { color: 'red', width: 2 } },
+                { type: 'line', x0: 1, x1: ranges.length, y0: rBar, y1: rBar, line: { color: 'green', width: 2 } }
+            ],
+            annotations: [
+                { x: ranges.length, y: ucl, text: `UCL=${ucl.toFixed(2)}`, showarrow: false, xanchor: 'left' },
+                { x: ranges.length, y: lcl, text: `LCL=${lcl.toFixed(2)}`, showarrow: false, xanchor: 'left' },
+                { x: ranges.length, y: rBar, text: `CL=${rBar.toFixed(2)}`, showarrow: false, xanchor: 'left' }
+            ]
+        };
+        Plotly.newPlot('chartR', [{ x: xLen, y: ranges, type: 'scatter', mode: 'lines+markers', line: {color: '#fd7e14'} }], layout);
     }
 </script>
 
