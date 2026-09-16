@@ -54,10 +54,12 @@
         </div>
         <div class="control-group">
             <label>LSL (하한규격)</label>
+            <!-- 엑셀 데이터 또는 수동 입력으로 변경되는 칸 -->
             <input type="number" id="lsl" step="0.001" value="20.9">
         </div>
         <div class="control-group">
             <label>USL (상한규격)</label>
+            <!-- 엑셀 데이터 또는 수동 입력으로 변경되는 칸 -->
             <input type="number" id="usl" step="0.001" value="21.0">
         </div>
         <div class="control-group" id="subgroupSizeGroup">
@@ -96,7 +98,8 @@
 </div>
 
 <script>
-    let globalData = []; 
+    // 엑셀 데이터를 { "FAI1": { data: [...], usl: 21, lsl: 20.9 }, ... } 형태로 저장
+    let globalCategories = {}; 
 
     const controlConstants = {
         2: { d2: 1.128, A2: 1.880, D3: 0, D4: 3.267, E2: 2.660 },
@@ -112,6 +115,7 @@
 
     const commonMargin = { t: 50, b: 50, l: 80, r: 50 };
 
+    // --- 1. 엑셀 파일 읽기 및 데이터 파싱 ---
     document.getElementById('excelFile').addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (!file) return;
@@ -123,22 +127,70 @@
             const worksheet = workbook.Sheets[workbook.SheetNames[0]];
             
             const rows = XLSX.utils.sheet_to_json(worksheet, {header: 1});
-            globalData = [];
+            globalCategories = {}; // 초기화
 
             const maxCols = rows[0] ? rows[0].length : 0;
+            
+            // 2개 열(구분, 측정값)씩 짝지어서 읽기
             for (let col = 0; col < maxCols; col += 2) {
+                let currentCategory = null;
+                let currentUSL = null;
+                let currentLSL = null;
+                let currentData = [];
+
+                // 1행(index 0)은 제목('구분', '측정값')이므로 2행(index 1)부터 시작
                 for (let row = 1; row < rows.length; row++) {
-                    if (rows[row]) {
-                        const cat = rows[row][col];
-                        const val = rows[row][col + 1];
-                        
-                        if (cat !== undefined && cat !== null && String(cat).trim() !== '') {
-                            const numVal = parseFloat(val);
-                            if (!isNaN(numVal)) {
-                                globalData.push({ '구분': String(cat).trim(), '측정값': numVal });
-                            }
-                        }
+                    if (!rows[row]) continue;
+
+                    let catCell = rows[row][col];
+                    let valCell = rows[row][col + 1];
+
+                    let catStr = (catCell !== undefined && catCell !== null) ? String(catCell).trim() : '';
+                    let catStrUpper = catStr.toUpperCase();
+                    let valNum = parseFloat(valCell);
+
+                    // 엑셀에서 USL/LSL 값을 찾아내면 변수에 저장하고 데이터에는 넣지 않음
+                    if (catStrUpper === 'USL' || catStrUpper === '상한' || catStrUpper === '상한규격') {
+                        if (!isNaN(valNum)) currentUSL = valNum;
+                        continue;
                     }
+                    if (catStrUpper === 'LSL' || catStrUpper === '하한' || catStrUpper === '하한규격') {
+                        if (!isNaN(valNum)) currentLSL = valNum;
+                        continue;
+                    }
+
+                    // 구분 칸에 글자(예: FAI1)가 있으면 카테고리 이름으로 인식
+                    if (catStr !== '') {
+                        // 기존에 수집하던 카테고리 데이터가 있으면 저장
+                        if (currentCategory && currentData.length > 0) {
+                            if (!globalCategories[currentCategory]) {
+                                globalCategories[currentCategory] = { data: [], usl: currentUSL, lsl: currentLSL };
+                            } else {
+                                if (currentUSL !== null) globalCategories[currentCategory].usl = currentUSL;
+                                if (currentLSL !== null) globalCategories[currentCategory].lsl = currentLSL;
+                            }
+                            globalCategories[currentCategory].data.push(...currentData);
+                            currentData = []; // 초기화
+                        }
+                        currentCategory = catStr;
+                    }
+
+                    // 카테고리가 정해진 상태고, 측정값이 숫자면 데이터로 저장
+                    // (구분 칸이 비어있더라도 currentCategory가 유지되므로 아래로 쭉 읽어들임)
+                    if (currentCategory && !isNaN(valNum)) {
+                        currentData.push(valNum);
+                    }
+                }
+
+                // 열의 끝에 도달하면 마지막으로 수집하던 데이터 저장
+                if (currentCategory && currentData.length > 0) {
+                    if (!globalCategories[currentCategory]) {
+                        globalCategories[currentCategory] = { data: [], usl: currentUSL, lsl: currentLSL };
+                    } else {
+                        if (currentUSL !== null) globalCategories[currentCategory].usl = currentUSL;
+                        if (currentLSL !== null) globalCategories[currentCategory].lsl = currentLSL;
+                    }
+                    globalCategories[currentCategory].data.push(...currentData);
                 }
             }
             updateCategoryDropdown();
@@ -146,32 +198,66 @@
         reader.readAsArrayBuffer(file);
     });
 
+    // --- 2. 드롭다운 업데이트 및 이벤트 ---
     function updateCategoryDropdown() {
-        const categories = [...new Set(globalData.map(item => item['구분']))];
         const select = document.getElementById('categorySelect');
         select.innerHTML = '<option value="ALL">전체 구분 모아보기 (All)</option>'; 
+        
+        const categories = Object.keys(globalCategories);
         categories.forEach(cat => {
             select.appendChild(new Option(cat, cat));
         });
         select.disabled = false;
         
         if(categories.length > 0) {
+             // 엑셀 로드 후 첫 번째 항목 선택 및 규격값 적용
              select.value = categories[0];
+             if (globalCategories[categories[0]].usl !== null) document.getElementById('usl').value = globalCategories[categories[0]].usl;
+             if (globalCategories[categories[0]].lsl !== null) document.getElementById('lsl').value = globalCategories[categories[0]].lsl;
         }
         updateDashboard();
     }
 
-    document.getElementById('categorySelect').addEventListener('change', updateDashboard);
+    // 드롭다운 변경 시: 해당 카테고리의 USL/LSL이 엑셀에 있으면 입력칸 갱신
+    document.getElementById('categorySelect').addEventListener('change', function(e) {
+        const selected = e.target.value;
+        if (selected !== "ALL" && globalCategories[selected]) {
+            if (globalCategories[selected].usl !== null) document.getElementById('usl').value = globalCategories[selected].usl;
+            if (globalCategories[selected].lsl !== null) document.getElementById('lsl').value = globalCategories[selected].lsl;
+        }
+        updateDashboard();
+    });
+
+    // 대시보드 화면에서 직접 USL/LSL 값을 변경할 때의 이벤트 (즉시 연동)
+    document.getElementById('lsl').addEventListener('input', function(e) {
+        const selected = document.getElementById('categorySelect').value;
+        const val = parseFloat(e.target.value);
+        if (selected !== "ALL" && globalCategories[selected] && !isNaN(val)) {
+            globalCategories[selected].lsl = val; // 개별 데이터 업데이트
+        }
+        updateDashboard();
+    });
+
+    document.getElementById('usl').addEventListener('input', function(e) {
+        const selected = document.getElementById('categorySelect').value;
+        const val = parseFloat(e.target.value);
+        if (selected !== "ALL" && globalCategories[selected] && !isNaN(val)) {
+            globalCategories[selected].usl = val; // 개별 데이터 업데이트
+        }
+        updateDashboard();
+    });
+
     document.getElementById('chartTypeSelect').addEventListener('change', updateDashboard);
-    document.getElementById('lsl').addEventListener('input', updateDashboard);
-    document.getElementById('usl').addEventListener('input', updateDashboard);
     document.getElementById('subgroupSize').addEventListener('change', updateDashboard);
 
+    // --- 3. 대시보드 연산 및 시각화 ---
     function updateDashboard() {
-        if(globalData.length === 0) return;
+        if (Object.keys(globalCategories).length === 0) return;
 
         const selectedCategory = document.getElementById('categorySelect').value;
         const chartType = document.getElementById('chartTypeSelect').value;
+        
+        // 화면에 입력된 USL/LSL 값 가져오기
         const LSL = parseFloat(document.getElementById('lsl').value);
         const USL = parseFloat(document.getElementById('usl').value);
         
@@ -193,7 +279,8 @@
             }
         }
 
-        const values = globalData.filter(item => item['구분'] === selectedCategory).map(item => item['측정값']);
+        // 선택된 카테고리의 데이터 사용
+        const values = globalCategories[selectedCategory].data;
         if (values.length < 2) { alert(`데이터가 부족합니다. 최소 2개 이상의 데이터가 필요합니다.`); return; }
 
         let specRange = Math.abs(USL - LSL);
@@ -203,7 +290,6 @@
         const sumSq = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0);
         let stdLT = Math.sqrt(sumSq / (values.length - 1));
         
-        // 🚨 방어 로직: 편차가 0일 경우 무한대 에러 방지 (규격의 5% 수준으로 가상의 편차 부여)
         if (stdLT === 0 || isNaN(stdLT)) stdLT = specRange * 0.05; 
 
         const pp = (USL - LSL) / (6 * stdLT);
@@ -232,8 +318,6 @@
 
             const grandMean = xbars.reduce((a,b)=>a+b,0) / xbars.length;
             let rBar = ranges.reduce((a,b)=>a+b,0) / ranges.length;
-            
-            // 🚨 방어 로직 (관리도)
             if (rBar === 0 || isNaN(rBar)) rBar = specRange * 0.05; 
 
             const { d2, A2, D3, D4 } = controlConstants[n];
@@ -255,8 +339,6 @@
 
             const grandMean = individuals.reduce((a,b)=>a+b,0) / individuals.length;
             let mrBar = movingRanges.reduce((a,b)=>a+b,0) / movingRanges.length;
-            
-            // 🚨 방어 로직 (관리도)
             if (mrBar === 0 || isNaN(mrBar)) mrBar = specRange * 0.05; 
 
             const { d2, E2, D3, D4 } = controlConstants[n]; 
@@ -283,8 +365,6 @@
     function drawHistogram(divId, values, mean, std, LSL, USL, category) {
         let specRange = Math.abs(USL - LSL);
         if (specRange === 0 || isNaN(specRange)) specRange = 1;
-        
-        // 🔥 핵심 방어 코드: 데이터가 100% 동일해도 무한대 에러가 나지 않도록 빈(Bin) 두께를 규격의 1/25로 강제 고정
         const binSize = specRange / 25; 
 
         const minVal = Math.min(...values, LSL) - (std * 2);
@@ -423,27 +503,30 @@
         Plotly.newPlot(divId, [{ x: xLen, y: movingRanges, type: 'scatter', mode: 'lines+markers', line: {color: '#fcc419'} }], layout, {responsive: true});
     }
 
-    function drawAllCategories(LSL, USL) {
+    // --- 4. 전체 구분 모아보기 ---
+    function drawAllCategories(defaultLSL, defaultUSL) {
         const grid = document.getElementById('allChartsGrid');
         grid.innerHTML = ''; 
-        
-        let specRange = Math.abs(USL - LSL);
-        if (specRange === 0 || isNaN(specRange)) specRange = 1;
-        
-        // 🔥 핵심 방어 코드
-        const binSize = specRange / 25; 
 
-        const categories = [...new Set(globalData.map(item => item['구분']))];
+        const categories = Object.keys(globalCategories);
         
         categories.forEach((cat, index) => {
-            const values = globalData.filter(item => item['구분'] === cat).map(item => item['측정값']);
+            const catData = globalCategories[cat];
+            const values = catData.data;
             if(values.length < 2) return;
+
+            // 엑셀에서 개별 카테고리에 지정한 LSL/USL이 있으면 그걸 쓰고, 없으면 화면 상단의 기본값 사용
+            let LSL = (catData.lsl !== null && !isNaN(catData.lsl)) ? catData.lsl : defaultLSL;
+            let USL = (catData.usl !== null && !isNaN(catData.usl)) ? catData.usl : defaultUSL;
+
+            let specRange = Math.abs(USL - LSL);
+            if (specRange === 0 || isNaN(specRange)) specRange = 1;
+            const binSize = specRange / 25; 
 
             const mean = values.reduce((a, b) => a + b, 0) / values.length;
             const sumSq = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0);
             let std = Math.sqrt(sumSq / (values.length - 1));
             
-            // 🚨 방어 로직
             if (std === 0 || isNaN(std)) std = specRange * 0.05;
             
             const ppu = (USL - mean) / (3 * std);
