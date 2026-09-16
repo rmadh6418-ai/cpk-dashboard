@@ -97,7 +97,7 @@
 
 <script>
     let globalCategories = {}; 
-    let renderTimer = null; // 렌더링 딜레이를 위한 타이머
+    let renderTimer = null; 
 
     const controlConstants = {
         2: { d2: 1.128, A2: 1.880, D3: 0, D4: 3.267, E2: 2.660 },
@@ -113,7 +113,6 @@
 
     const commonMargin = { t: 50, b: 50, l: 80, r: 50 };
 
-    // --- 1. 엑셀 파일 읽기 및 데이터 파싱 ---
     document.getElementById('excelFile').addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (!file) return;
@@ -188,7 +187,6 @@
         reader.readAsArrayBuffer(file);
     });
 
-    // --- 2. 이벤트 리스너 ---
     function updateCategoryDropdown() {
         const select = document.getElementById('categorySelect');
         select.innerHTML = '<option value="ALL">전체 구분 모아보기 (All)</option>'; 
@@ -233,7 +231,6 @@
     document.getElementById('chartTypeSelect').addEventListener('change', updateDashboard);
     document.getElementById('subgroupSize').addEventListener('change', updateDashboard);
 
-    // --- 3. 대시보드 UI 전환 및 렌더링 호출 ---
     function updateDashboard() {
         if (Object.keys(globalCategories).length === 0) return;
 
@@ -243,7 +240,6 @@
         const LSL = parseFloat(document.getElementById('lsl').value);
         const USL = parseFloat(document.getElementById('usl').value);
         
-        // 화면 전환 로직
         if (selectedCategory === "ALL") {
             document.getElementById('singleCategoryView').classList.add('hidden');
             document.getElementById('allCategoriesView').classList.remove('hidden');
@@ -260,7 +256,6 @@
             }
         }
 
-        // 🔥 [해결의 핵심] 브라우저가 숨겨진 화면을 다 펼칠 때까지 0.1초 기다렸다가 차트를 그립니다.
         if (renderTimer) clearTimeout(renderTimer);
         renderTimer = setTimeout(() => {
             if (selectedCategory === "ALL") {
@@ -268,13 +263,12 @@
             } else {
                 renderSingleCategory(selectedCategory, chartType, LSL, USL);
             }
-        }, 100); 
+        }, 50); 
     }
 
-    // --- 4. 개별 차트 렌더링 함수 ---
     function renderSingleCategory(selectedCategory, chartType, LSL, USL) {
         const values = globalCategories[selectedCategory].data;
-        if (values.length < 2) { alert(`데이터가 부족합니다.`); return; }
+        if (values.length < 2) return;
 
         let specRange = Math.abs(USL - LSL);
         if (specRange === 0 || isNaN(specRange)) specRange = 1;
@@ -358,17 +352,13 @@
     function drawHistogram(divId, values, mean, std, LSL, USL, category) {
         let specRange = Math.abs(USL - LSL);
         if (specRange === 0 || isNaN(specRange)) specRange = 1;
-        const binSize = specRange / 25; 
 
-        // 🔥 X축 스케일 고정을 위한 최솟값 최댓값 강제 지정
-        let dataMin = values.reduce((min, v) => v < min ? v : min, values[0]);
-        let dataMax = values.reduce((max, v) => v > max ? v : max, values[0]);
-        const minVal = Math.min(dataMin, LSL) - (std * 2);
-        const maxVal = Math.max(dataMax, USL) + (std * 2);
-        
+        const curveMin = Math.min(...values, LSL) - (std * 2);
+        const curveMax = Math.max(...values, USL) + (std * 2);
         const xCurve = [], yCurve = [];
-        const step = (maxVal - minVal) / 100;
-        for (let x = minVal; x <= maxVal; x += step) {
+        const step = (curveMax - curveMin) / 100;
+        
+        for (let x = curveMin; x <= curveMax; x += step) {
             xCurve.push(x);
             yCurve.push((1 / (std * Math.sqrt(2 * Math.PI))) * Math.exp(-0.5 * Math.pow((x - mean) / std, 2)));
         }
@@ -377,10 +367,7 @@
             title: `<b>[${category}] 공정능력 히스토그램</b>`,
             margin: commonMargin, 
             showlegend: false,
-            xaxis: { 
-                tickformat: '.3f',
-                range: [minVal, maxVal] // X축이 엉뚱한 곳을 보여주는 버그 완벽 차단
-            }, 
+            xaxis: { tickformat: '.3f' }, 
             shapes: [
                 { type: 'line', x0: LSL, x1: LSL, y0: 0, y1: 1, yref: 'paper', line: { color: 'red', dash: 'dash', width: 2 } },
                 { type: 'line', x0: USL, x1: USL, y0: 0, y1: 1, yref: 'paper', line: { color: 'red', dash: 'dash', width: 2 } }
@@ -391,7 +378,7 @@
             ]
         };
         Plotly.newPlot(divId, [
-            { x: values, type: 'histogram', histnorm: 'probability density', xbins: { size: binSize }, marker: { color: '#4dabf7', line: {color: 'white', width:1} }, opacity: 0.7 },
+            { x: values, type: 'histogram', histnorm: 'probability density', marker: { color: '#4dabf7', line: {color: 'white', width:1} }, opacity: 0.7 },
             { x: xCurve, y: yCurve, type: 'scatter', mode: 'lines', line: { color: '#343a40', width: 2 } }
         ], layout, {responsive: true});
     }
@@ -502,75 +489,75 @@
         Plotly.newPlot(divId, [{ x: xLen, y: movingRanges, type: 'scatter', mode: 'lines+markers', line: {color: '#fcc419'} }], layout, {responsive: true});
     }
 
-    // --- 5. 전체 구분 모아보기 ---
+    // --- 5. 전체 구분 모아보기 (에러 완벽 방지) ---
     function drawAllCategories(defaultLSL, defaultUSL) {
         const grid = document.getElementById('allChartsGrid');
         grid.innerHTML = ''; 
 
         const categories = Object.keys(globalCategories);
         
+        // [핵심 해결] 1단계: 껍데기(div)부터 화면에 모두 그려서 물리적인 '크기'를 먼저 할당합니다.
         categories.forEach((cat, index) => {
-            const catData = globalCategories[cat];
-            const values = catData.data;
-            if(values.length < 2) return;
-
-            let LSL = (catData.lsl !== null && !isNaN(catData.lsl)) ? catData.lsl : defaultLSL;
-            let USL = (catData.usl !== null && !isNaN(catData.usl)) ? catData.usl : defaultUSL;
-
-            let specRange = Math.abs(USL - LSL);
-            if (specRange === 0 || isNaN(specRange)) specRange = 1;
-            const binSize = specRange / 25; 
-
-            const mean = values.reduce((a, b) => a + b, 0) / values.length;
-            const sumSq = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0);
-            let std = Math.sqrt(sumSq / (values.length - 1));
-            if (std === 0 || isNaN(std)) std = specRange * 0.05;
-            
-            const ppu = (USL - mean) / (3 * std);
-            const ppl = (mean - LSL) / (3 * std);
-            const ppk = Math.min(ppu, ppl);
-
             const divId = `allChart_${index}`;
             const wrapDiv = document.createElement('div');
             wrapDiv.className = 'small-chart-box';
             wrapDiv.id = divId;
             grid.appendChild(wrapDiv);
-
-            const title = `<b>[${cat}]</b><br><span style="font-size:12px">Mean: ${mean.toFixed(3)} | Ppk: ${ppk.toFixed(3)}</span>`;
-
-            // 🔥 X축 스케일 고정을 위한 최솟값 최댓값 강제 지정
-            let dataMin = values.reduce((min, v) => v < min ? v : min, values[0]);
-            let dataMax = values.reduce((max, v) => v > max ? v : max, values[0]);
-            const minVal = Math.min(dataMin, LSL) - (std * 2);
-            const maxVal = Math.max(dataMax, USL) + (std * 2);
-
-            const xCurve = [], yCurve = [];
-            const step = (maxVal - minVal) / 100;
-            
-            for (let x = minVal; x <= maxVal; x += step) {
-                xCurve.push(x);
-                yCurve.push((1 / (std * Math.sqrt(2 * Math.PI))) * Math.exp(-0.5 * Math.pow((x - mean) / std, 2)));
-            }
-
-            const layout = {
-                title: title,
-                margin: { t: 75, b: 40, l: 50, r: 30 }, 
-                showlegend: false,
-                xaxis: { 
-                    tickformat: '.3f',
-                    range: [minVal, maxVal] // X축 고정
-                },
-                shapes: [
-                    { type: 'line', x0: LSL, x1: LSL, y0: 0, y1: 1, yref: 'paper', line: { color: 'red', dash: 'dash', width: 1.5 } },
-                    { type: 'line', x0: USL, x1: USL, y0: 0, y1: 1, yref: 'paper', line: { color: 'red', dash: 'dash', width: 1.5 } }
-                ]
-            };
-            
-            Plotly.newPlot(divId, [
-                { x: values, type: 'histogram', histnorm: 'probability density', xbins: { size: binSize }, marker: { color: '#4dabf7', line: {color: 'white', width:1} }, opacity: 0.7 },
-                { x: xCurve, y: yCurve, type: 'scatter', mode: 'lines', line: { color: '#343a40', width: 1.5 } }
-            ], layout, { responsive: true, displayModeBar: false });
         });
+
+        // [핵심 해결] 2단계: 브라우저가 화면을 그릴 시간을 0.1초 준 뒤에 차트 엔진을 안전하게 가동합니다.
+        setTimeout(() => {
+            categories.forEach((cat, index) => {
+                const catData = globalCategories[cat];
+                const values = catData.data;
+                if(values.length < 2) return;
+
+                let LSL = (catData.lsl !== null && !isNaN(catData.lsl)) ? catData.lsl : defaultLSL;
+                let USL = (catData.usl !== null && !isNaN(catData.usl)) ? catData.usl : defaultUSL;
+
+                let specRange = Math.abs(USL - LSL);
+                if (specRange === 0 || isNaN(specRange)) specRange = 1;
+
+                const mean = values.reduce((a, b) => a + b, 0) / values.length;
+                const sumSq = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0);
+                let std = Math.sqrt(sumSq / (values.length - 1));
+                
+                if (std === 0 || isNaN(std)) std = specRange * 0.05;
+                
+                const ppu = (USL - mean) / (3 * std);
+                const ppl = (mean - LSL) / (3 * std);
+                const ppk = Math.min(ppu, ppl);
+
+                const divId = `allChart_${index}`;
+                const title = `<b>[${cat}]</b><br><span style="font-size:12px">Mean: ${mean.toFixed(3)} | Ppk: ${ppk.toFixed(3)}</span>`;
+
+                const curveMin = Math.min(...values, LSL) - (std * 2);
+                const curveMax = Math.max(...values, USL) + (std * 2);
+                const xCurve = [], yCurve = [];
+                const step = (curveMax - curveMin) / 100;
+                
+                for (let x = curveMin; x <= curveMax; x += step) {
+                    xCurve.push(x);
+                    yCurve.push((1 / (std * Math.sqrt(2 * Math.PI))) * Math.exp(-0.5 * Math.pow((x - mean) / std, 2)));
+                }
+
+                const layout = {
+                    title: title,
+                    margin: { t: 75, b: 40, l: 50, r: 30 }, 
+                    showlegend: false,
+                    xaxis: { tickformat: '.3f' }, // 에러를 유발하던 강제 X축 고정 코드를 삭제하여 차트 엔진이 알아서 예쁘게 잡아주도록 변경
+                    shapes: [
+                        { type: 'line', x0: LSL, x1: LSL, y0: 0, y1: 1, yref: 'paper', line: { color: 'red', dash: 'dash', width: 1.5 } },
+                        { type: 'line', x0: USL, x1: USL, y0: 0, y1: 1, yref: 'paper', line: { color: 'red', dash: 'dash', width: 1.5 } }
+                    ]
+                };
+                
+                Plotly.newPlot(divId, [
+                    { x: values, type: 'histogram', histnorm: 'probability density', marker: { color: '#4dabf7', line: {color: 'white', width:1} }, opacity: 0.7 },
+                    { x: xCurve, y: yCurve, type: 'scatter', mode: 'lines', line: { color: '#343a40', width: 1.5 } }
+                ], layout, { responsive: true, displayModeBar: false });
+            });
+        }, 100); 
     }
 </script>
 
