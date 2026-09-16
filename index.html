@@ -54,12 +54,10 @@
         </div>
         <div class="control-group">
             <label>LSL (하한규격)</label>
-            <!-- 엑셀 데이터 또는 수동 입력으로 변경되는 칸 -->
             <input type="number" id="lsl" step="0.001" value="20.9">
         </div>
         <div class="control-group">
             <label>USL (상한규격)</label>
-            <!-- 엑셀 데이터 또는 수동 입력으로 변경되는 칸 -->
             <input type="number" id="usl" step="0.001" value="21.0">
         </div>
         <div class="control-group" id="subgroupSizeGroup">
@@ -98,8 +96,8 @@
 </div>
 
 <script>
-    // 엑셀 데이터를 { "FAI1": { data: [...], usl: 21, lsl: 20.9 }, ... } 형태로 저장
     let globalCategories = {}; 
+    let renderTimer = null; // 렌더링 딜레이를 위한 타이머
 
     const controlConstants = {
         2: { d2: 1.128, A2: 1.880, D3: 0, D4: 3.267, E2: 2.660 },
@@ -127,18 +125,16 @@
             const worksheet = workbook.Sheets[workbook.SheetNames[0]];
             
             const rows = XLSX.utils.sheet_to_json(worksheet, {header: 1});
-            globalCategories = {}; // 초기화
+            globalCategories = {}; 
 
             const maxCols = rows[0] ? rows[0].length : 0;
             
-            // 2개 열(구분, 측정값)씩 짝지어서 읽기
             for (let col = 0; col < maxCols; col += 2) {
                 let currentCategory = null;
                 let currentUSL = null;
                 let currentLSL = null;
                 let currentData = [];
 
-                // 1행(index 0)은 제목('구분', '측정값')이므로 2행(index 1)부터 시작
                 for (let row = 1; row < rows.length; row++) {
                     if (!rows[row]) continue;
 
@@ -149,7 +145,6 @@
                     let catStrUpper = catStr.toUpperCase();
                     let valNum = parseFloat(valCell);
 
-                    // 엑셀에서 USL/LSL 값을 찾아내면 변수에 저장하고 데이터에는 넣지 않음
                     if (catStrUpper === 'USL' || catStrUpper === '상한' || catStrUpper === '상한규격') {
                         if (!isNaN(valNum)) currentUSL = valNum;
                         continue;
@@ -159,9 +154,7 @@
                         continue;
                     }
 
-                    // 구분 칸에 글자(예: FAI1)가 있으면 카테고리 이름으로 인식
                     if (catStr !== '') {
-                        // 기존에 수집하던 카테고리 데이터가 있으면 저장
                         if (currentCategory && currentData.length > 0) {
                             if (!globalCategories[currentCategory]) {
                                 globalCategories[currentCategory] = { data: [], usl: currentUSL, lsl: currentLSL };
@@ -170,19 +163,16 @@
                                 if (currentLSL !== null) globalCategories[currentCategory].lsl = currentLSL;
                             }
                             globalCategories[currentCategory].data.push(...currentData);
-                            currentData = []; // 초기화
+                            currentData = []; 
                         }
                         currentCategory = catStr;
                     }
 
-                    // 카테고리가 정해진 상태고, 측정값이 숫자면 데이터로 저장
-                    // (구분 칸이 비어있더라도 currentCategory가 유지되므로 아래로 쭉 읽어들임)
                     if (currentCategory && !isNaN(valNum)) {
                         currentData.push(valNum);
                     }
                 }
 
-                // 열의 끝에 도달하면 마지막으로 수집하던 데이터 저장
                 if (currentCategory && currentData.length > 0) {
                     if (!globalCategories[currentCategory]) {
                         globalCategories[currentCategory] = { data: [], usl: currentUSL, lsl: currentLSL };
@@ -198,7 +188,7 @@
         reader.readAsArrayBuffer(file);
     });
 
-    // --- 2. 드롭다운 업데이트 및 이벤트 ---
+    // --- 2. 이벤트 리스너 ---
     function updateCategoryDropdown() {
         const select = document.getElementById('categorySelect');
         select.innerHTML = '<option value="ALL">전체 구분 모아보기 (All)</option>'; 
@@ -210,7 +200,6 @@
         select.disabled = false;
         
         if(categories.length > 0) {
-             // 엑셀 로드 후 첫 번째 항목 선택 및 규격값 적용
              select.value = categories[0];
              if (globalCategories[categories[0]].usl !== null) document.getElementById('usl').value = globalCategories[categories[0]].usl;
              if (globalCategories[categories[0]].lsl !== null) document.getElementById('lsl').value = globalCategories[categories[0]].lsl;
@@ -218,7 +207,6 @@
         updateDashboard();
     }
 
-    // 드롭다운 변경 시: 해당 카테고리의 USL/LSL이 엑셀에 있으면 입력칸 갱신
     document.getElementById('categorySelect').addEventListener('change', function(e) {
         const selected = e.target.value;
         if (selected !== "ALL" && globalCategories[selected]) {
@@ -228,46 +216,39 @@
         updateDashboard();
     });
 
-    // 대시보드 화면에서 직접 USL/LSL 값을 변경할 때의 이벤트 (즉시 연동)
     document.getElementById('lsl').addEventListener('input', function(e) {
         const selected = document.getElementById('categorySelect').value;
         const val = parseFloat(e.target.value);
-        if (selected !== "ALL" && globalCategories[selected] && !isNaN(val)) {
-            globalCategories[selected].lsl = val; // 개별 데이터 업데이트
-        }
+        if (selected !== "ALL" && globalCategories[selected] && !isNaN(val)) globalCategories[selected].lsl = val; 
         updateDashboard();
     });
 
     document.getElementById('usl').addEventListener('input', function(e) {
         const selected = document.getElementById('categorySelect').value;
         const val = parseFloat(e.target.value);
-        if (selected !== "ALL" && globalCategories[selected] && !isNaN(val)) {
-            globalCategories[selected].usl = val; // 개별 데이터 업데이트
-        }
+        if (selected !== "ALL" && globalCategories[selected] && !isNaN(val)) globalCategories[selected].usl = val; 
         updateDashboard();
     });
 
     document.getElementById('chartTypeSelect').addEventListener('change', updateDashboard);
     document.getElementById('subgroupSize').addEventListener('change', updateDashboard);
 
-    // --- 3. 대시보드 연산 및 시각화 ---
+    // --- 3. 대시보드 UI 전환 및 렌더링 호출 ---
     function updateDashboard() {
         if (Object.keys(globalCategories).length === 0) return;
 
         const selectedCategory = document.getElementById('categorySelect').value;
         const chartType = document.getElementById('chartTypeSelect').value;
         
-        // 화면에 입력된 USL/LSL 값 가져오기
         const LSL = parseFloat(document.getElementById('lsl').value);
         const USL = parseFloat(document.getElementById('usl').value);
         
+        // 화면 전환 로직
         if (selectedCategory === "ALL") {
             document.getElementById('singleCategoryView').classList.add('hidden');
             document.getElementById('allCategoriesView').classList.remove('hidden');
             document.getElementById('chartTypeGroup').classList.add('hidden');
             document.getElementById('subgroupSizeGroup').classList.add('hidden');
-            drawAllCategories(LSL, USL);
-            return;
         } else {
             document.getElementById('singleCategoryView').classList.remove('hidden');
             document.getElementById('allCategoriesView').classList.add('hidden');
@@ -279,9 +260,21 @@
             }
         }
 
-        // 선택된 카테고리의 데이터 사용
+        // 🔥 [해결의 핵심] 브라우저가 숨겨진 화면을 다 펼칠 때까지 0.1초 기다렸다가 차트를 그립니다.
+        if (renderTimer) clearTimeout(renderTimer);
+        renderTimer = setTimeout(() => {
+            if (selectedCategory === "ALL") {
+                drawAllCategories(LSL, USL);
+            } else {
+                renderSingleCategory(selectedCategory, chartType, LSL, USL);
+            }
+        }, 100); 
+    }
+
+    // --- 4. 개별 차트 렌더링 함수 ---
+    function renderSingleCategory(selectedCategory, chartType, LSL, USL) {
         const values = globalCategories[selectedCategory].data;
-        if (values.length < 2) { alert(`데이터가 부족합니다. 최소 2개 이상의 데이터가 필요합니다.`); return; }
+        if (values.length < 2) { alert(`데이터가 부족합니다.`); return; }
 
         let specRange = Math.abs(USL - LSL);
         if (specRange === 0 || isNaN(specRange)) specRange = 1;
@@ -306,7 +299,7 @@
         if (chartType === 'Xbar-R') {
             let n = parseInt(document.getElementById('subgroupSize').value);
             if (n < 2) n = 2; if (n > 10) n = 10;
-            if (values.length < n) { alert(`데이터가 부족합니다. 최소 ${n}개 이상의 데이터가 필요합니다.`); return; }
+            if (values.length < n) return;
 
             const subgroups = [], xbars = [], ranges = [];
             for (let i = 0; i <= values.length - n; i += n) {
@@ -367,11 +360,14 @@
         if (specRange === 0 || isNaN(specRange)) specRange = 1;
         const binSize = specRange / 25; 
 
-        const minVal = Math.min(...values, LSL) - (std * 2);
-        const maxVal = Math.max(...values, USL) + (std * 2);
+        // 🔥 X축 스케일 고정을 위한 최솟값 최댓값 강제 지정
+        let dataMin = values.reduce((min, v) => v < min ? v : min, values[0]);
+        let dataMax = values.reduce((max, v) => v > max ? v : max, values[0]);
+        const minVal = Math.min(dataMin, LSL) - (std * 2);
+        const maxVal = Math.max(dataMax, USL) + (std * 2);
+        
         const xCurve = [], yCurve = [];
         const step = (maxVal - minVal) / 100;
-        
         for (let x = minVal; x <= maxVal; x += step) {
             xCurve.push(x);
             yCurve.push((1 / (std * Math.sqrt(2 * Math.PI))) * Math.exp(-0.5 * Math.pow((x - mean) / std, 2)));
@@ -381,7 +377,10 @@
             title: `<b>[${category}] 공정능력 히스토그램</b>`,
             margin: commonMargin, 
             showlegend: false,
-            xaxis: { tickformat: '.3f' }, 
+            xaxis: { 
+                tickformat: '.3f',
+                range: [minVal, maxVal] // X축이 엉뚱한 곳을 보여주는 버그 완벽 차단
+            }, 
             shapes: [
                 { type: 'line', x0: LSL, x1: LSL, y0: 0, y1: 1, yref: 'paper', line: { color: 'red', dash: 'dash', width: 2 } },
                 { type: 'line', x0: USL, x1: USL, y0: 0, y1: 1, yref: 'paper', line: { color: 'red', dash: 'dash', width: 2 } }
@@ -503,7 +502,7 @@
         Plotly.newPlot(divId, [{ x: xLen, y: movingRanges, type: 'scatter', mode: 'lines+markers', line: {color: '#fcc419'} }], layout, {responsive: true});
     }
 
-    // --- 4. 전체 구분 모아보기 ---
+    // --- 5. 전체 구분 모아보기 ---
     function drawAllCategories(defaultLSL, defaultUSL) {
         const grid = document.getElementById('allChartsGrid');
         grid.innerHTML = ''; 
@@ -515,7 +514,6 @@
             const values = catData.data;
             if(values.length < 2) return;
 
-            // 엑셀에서 개별 카테고리에 지정한 LSL/USL이 있으면 그걸 쓰고, 없으면 화면 상단의 기본값 사용
             let LSL = (catData.lsl !== null && !isNaN(catData.lsl)) ? catData.lsl : defaultLSL;
             let USL = (catData.usl !== null && !isNaN(catData.usl)) ? catData.usl : defaultUSL;
 
@@ -526,7 +524,6 @@
             const mean = values.reduce((a, b) => a + b, 0) / values.length;
             const sumSq = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0);
             let std = Math.sqrt(sumSq / (values.length - 1));
-            
             if (std === 0 || isNaN(std)) std = specRange * 0.05;
             
             const ppu = (USL - mean) / (3 * std);
@@ -541,8 +538,12 @@
 
             const title = `<b>[${cat}]</b><br><span style="font-size:12px">Mean: ${mean.toFixed(3)} | Ppk: ${ppk.toFixed(3)}</span>`;
 
-            const minVal = Math.min(...values, LSL) - (std * 2);
-            const maxVal = Math.max(...values, USL) + (std * 2);
+            // 🔥 X축 스케일 고정을 위한 최솟값 최댓값 강제 지정
+            let dataMin = values.reduce((min, v) => v < min ? v : min, values[0]);
+            let dataMax = values.reduce((max, v) => v > max ? v : max, values[0]);
+            const minVal = Math.min(dataMin, LSL) - (std * 2);
+            const maxVal = Math.max(dataMax, USL) + (std * 2);
+
             const xCurve = [], yCurve = [];
             const step = (maxVal - minVal) / 100;
             
@@ -555,7 +556,10 @@
                 title: title,
                 margin: { t: 75, b: 40, l: 50, r: 30 }, 
                 showlegend: false,
-                xaxis: { tickformat: '.3f' },
+                xaxis: { 
+                    tickformat: '.3f',
+                    range: [minVal, maxVal] // X축 고정
+                },
                 shapes: [
                     { type: 'line', x0: LSL, x1: LSL, y0: 0, y1: 1, yref: 'paper', line: { color: 'red', dash: 'dash', width: 1.5 } },
                     { type: 'line', x0: USL, x1: USL, y0: 0, y1: 1, yref: 'paper', line: { color: 'red', dash: 'dash', width: 1.5 } }
