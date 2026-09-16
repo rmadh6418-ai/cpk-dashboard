@@ -26,7 +26,7 @@
         .chart-full { width: 100%; background: #fff; border: 1px solid #dee2e6; border-radius: 8px; padding: 10px; margin-bottom: 20px; box-sizing: border-box; }
         
         .all-categories-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 25px; }
-        .small-chart-box { background: #fff; border: 1px solid #dee2e6; border-radius: 8px; padding: 10px; height: 380px; width: 100%; box-sizing: border-box; }
+        .small-chart-box { background: #fff; border: 1px solid #dee2e6; border-radius: 8px; padding: 10px; height: 380px; width: 100%; box-sizing: border-box; overflow: hidden; }
 
         .hidden { display: none !important; }
     </style>
@@ -263,7 +263,7 @@
             } else {
                 renderSingleCategory(selectedCategory, chartType, LSL, USL);
             }
-        }, 50); 
+        }, 100); 
     }
 
     function renderSingleCategory(selectedCategory, chartType, LSL, USL) {
@@ -489,14 +489,14 @@
         Plotly.newPlot(divId, [{ x: xLen, y: movingRanges, type: 'scatter', mode: 'lines+markers', line: {color: '#fcc419'} }], layout, {responsive: true});
     }
 
-    // --- 5. 전체 구분 모아보기 (에러 완벽 방지) ---
+    // --- 5. 전체 구분 모아보기 ---
     function drawAllCategories(defaultLSL, defaultUSL) {
         const grid = document.getElementById('allChartsGrid');
         grid.innerHTML = ''; 
 
         const categories = Object.keys(globalCategories);
+        const chartType = document.getElementById('chartTypeSelect').value;
         
-        // [핵심 해결] 1단계: 껍데기(div)부터 화면에 모두 그려서 물리적인 '크기'를 먼저 할당합니다.
         categories.forEach((cat, index) => {
             const divId = `allChart_${index}`;
             const wrapDiv = document.createElement('div');
@@ -505,7 +505,6 @@
             grid.appendChild(wrapDiv);
         });
 
-        // [핵심 해결] 2단계: 브라우저가 화면을 그릴 시간을 0.1초 준 뒤에 차트 엔진을 안전하게 가동합니다.
         setTimeout(() => {
             categories.forEach((cat, index) => {
                 const catData = globalCategories[cat];
@@ -520,32 +519,59 @@
 
                 const mean = values.reduce((a, b) => a + b, 0) / values.length;
                 const sumSq = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0);
-                let std = Math.sqrt(sumSq / (values.length - 1));
+                let stdLT = Math.sqrt(sumSq / (values.length - 1));
+                if (stdLT === 0 || isNaN(stdLT)) stdLT = specRange * 0.05;
                 
-                if (std === 0 || isNaN(std)) std = specRange * 0.05;
-                
-                const ppu = (USL - mean) / (3 * std);
-                const ppl = (mean - LSL) / (3 * std);
-                const ppk = Math.min(ppu, ppl);
+                // 🔥 Cpk 계산을 위해 단기 표준편차(stdST) 적용
+                let stdST = stdLT;
+                if (chartType === 'Xbar-R') {
+                    let n = parseInt(document.getElementById('subgroupSize').value);
+                    if (isNaN(n) || n < 2) n = 2; if (n > 10) n = 10;
+                    const ranges = [];
+                    for (let i = 0; i <= values.length - n; i += n) {
+                        const chunk = values.slice(i, i + n);
+                        ranges.push(Math.max(...chunk) - Math.min(...chunk));
+                    }
+                    if(ranges.length > 0) {
+                        let rBar = ranges.reduce((a,b)=>a+b,0)/ranges.length;
+                        if(rBar === 0) rBar = specRange * 0.05;
+                        stdST = rBar / controlConstants[n].d2;
+                    }
+                } else {
+                    const movingRanges = [];
+                    for (let i = 1; i < values.length; i++) movingRanges.push(Math.abs(values[i] - values[i-1]));
+                    if(movingRanges.length > 0) {
+                        let mrBar = movingRanges.reduce((a,b)=>a+b,0)/movingRanges.length;
+                        if(mrBar === 0) mrBar = specRange * 0.05;
+                        stdST = mrBar / controlConstants[2].d2;
+                    }
+                }
+
+                const cpu = (USL - mean) / (3 * stdST);
+                const cpl = (mean - LSL) / (3 * stdST);
+                const cpk = Math.min(cpu, cpl);
 
                 const divId = `allChart_${index}`;
-                const title = `<b>[${cat}]</b><br><span style="font-size:12px">Mean: ${mean.toFixed(3)} | Ppk: ${ppk.toFixed(3)}</span>`;
+                // 🔥 라벨을 Cpk로 변경 적용
+                const title = `<b>[${cat}]</b><br><span style="font-size:12px">Mean: ${mean.toFixed(3)} | Cpk: ${cpk.toFixed(3)}</span>`;
 
-                const curveMin = Math.min(...values, LSL) - (std * 2);
-                const curveMax = Math.max(...values, USL) + (std * 2);
+                const curveMin = Math.min(...values, LSL) - (stdLT * 2);
+                const curveMax = Math.max(...values, USL) + (stdLT * 2);
                 const xCurve = [], yCurve = [];
                 const step = (curveMax - curveMin) / 100;
                 
                 for (let x = curveMin; x <= curveMax; x += step) {
                     xCurve.push(x);
-                    yCurve.push((1 / (std * Math.sqrt(2 * Math.PI))) * Math.exp(-0.5 * Math.pow((x - mean) / std, 2)));
+                    yCurve.push((1 / (stdLT * Math.sqrt(2 * Math.PI))) * Math.exp(-0.5 * Math.pow((x - mean) / stdLT, 2)));
                 }
 
+                // 🔥 height: 350을 추가하여 네모 박스 안에 차트가 벗어나지 않게 고정
                 const layout = {
                     title: title,
+                    height: 350, 
                     margin: { t: 75, b: 40, l: 50, r: 30 }, 
                     showlegend: false,
-                    xaxis: { tickformat: '.3f' }, // 에러를 유발하던 강제 X축 고정 코드를 삭제하여 차트 엔진이 알아서 예쁘게 잡아주도록 변경
+                    xaxis: { tickformat: '.3f' },
                     shapes: [
                         { type: 'line', x0: LSL, x1: LSL, y0: 0, y1: 1, yref: 'paper', line: { color: 'red', dash: 'dash', width: 1.5 } },
                         { type: 'line', x0: USL, x1: USL, y0: 0, y1: 1, yref: 'paper', line: { color: 'red', dash: 'dash', width: 1.5 } }
