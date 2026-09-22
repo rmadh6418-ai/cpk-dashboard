@@ -6,6 +6,7 @@
     <title>제조 품질 통합 대시보드 (CPK / PPK / 관리도)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+    <!-- 🔥 AI 결과 포맷팅을 위한 marked.js 추가 -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         body { font-family: 'Malgun Gothic', sans-serif; padding: 20px; background-color: #f8f9fa; margin: 0; }
@@ -43,7 +44,6 @@
 
         .hidden { display: none !important; }
 
-        /* 🔥 로그인 화면 CSS */
         #loginOverlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: #e9ecef; display: flex; justify-content: center; align-items: center;
@@ -110,14 +110,14 @@
         </div>
     </div>
 
-    <!-- 🔥 API 키 입력 영역 복구 -->
+    <!-- 🔥 AI 리포트 생성 컨트롤 영역 -->
     <div class="controls ai-controls" id="aiControlsGroup">
         <div class="control-group" style="flex: 1;">
-            <label style="color: #1565c0;">🔑 Gemini API 키 (최초 1회 입력 시 안전하게 로컬 자동 저장)</label>
+            <label style="color: #1565c0;">🔑 Gemini API 키 (최초 1회 입력 시 자동 저장)</label>
             <input type="password" id="geminiApiKey" placeholder="여기에 발급받은 API Key를 입력하세요">
         </div>
         <div class="control-group" style="justify-content: flex-end;">
-            <button onclick="generateAIReport()" class="ai-btn">🤖 6 Sigma 관점 AI 공정 능력 분석 실행</button>
+            <button onclick="generateAIReport()" class="ai-btn">🤖 AI 공정 능력 상세 분석 실행</button>
         </div>
     </div>
 
@@ -132,6 +132,7 @@
             <div class="metric-card highlight"><h3>Cpk (단기)</h3><p id="txt-cpk">-</p></div>
         </div>
 
+        <!-- 🔥 AI 리포트 결과 출력 영역 -->
         <div id="aiReportArea" class="hidden">
             <h3 style="margin-top:0; color:#1565c0;">💡 AI 품질 엔지니어 분석 리포트</h3>
             <div id="aiReportContent"></div>
@@ -170,20 +171,21 @@
         if (e.key === 'Enter') checkPassword();
     });
 
-    // 🔥 페이지 로드 시 로컬스토리지에 저장된 API Key 불러오기
+    // 페이지 로드 시 로컬스토리지에 저장된 API Key 불러오기
     window.addEventListener('load', () => {
         const savedKey = localStorage.getItem('gemini_api_key');
         if (savedKey) document.getElementById('geminiApiKey').value = savedKey;
     });
 
+    // 🔥 AI 리포트 생성 함수 추가
     async function generateAIReport() {
-        // 🔥 화면에서 키를 읽어와서 저장 및 활용 (깃허브 시크릿 미사용)
         const apiKey = document.getElementById('geminiApiKey').value.trim();
         if(!apiKey) {
             alert('💡 AI 분석을 위해 Gemini API 키를 입력해주세요!\n(Google AI Studio에서 무료 발급 가능합니다.)');
             return;
         }
-        localStorage.setItem('gemini_api_key', apiKey); // 로컬 스토리지에 자동 저장
+        // 다음 사용을 위해 로컬 스토리지에 저장
+        localStorage.setItem('gemini_api_key', apiKey);
 
         const selectedCategory = document.getElementById('categorySelect').value;
         if (selectedCategory === "ALL" || !globalCategories[selectedCategory]) {
@@ -216,11 +218,11 @@
         - 장기 공정능력지수: Pp(${pp}), Ppk(${ppk})
 
         위 데이터를 바탕으로 실무진에게 보고할 수 있는 **상세한 품질 진단 리포트**를 작성해주세요. 다음 내용을 반드시 포함하세요:
-        1. **종합 공정 능력 평가**: 현재 Cpk 및 Ppk 수치 기준 공정 상태 진단
-        2. **중심성 및 산포 분석**: 평균이 규격 중심에서 얼마나 치우쳐 있는지 진단
-        3. **실무적 결론 및 4M 관점 개선 제언**: 데이터 기반으로 조치해야 할 품질 안정화 방안
+        1. **종합 공정 능력 평가**: 현재 Cpk 및 Ppk 수치 기준 공정 상태 진단 (우수, 양호, 4M 점검 필요 등)
+        2. **중심성 및 산포 분석**: 평균이 규격 중심에서 얼마나 치우쳐 있는지, Cp/Cpk 차이와 Pp/Ppk 차이를 통해 알 수 있는 현상 해석
+        3. **실무적 결론 및 4M 관점 개선 제언**: 데이터 기반으로 유추 가능한 문제점과 즉시 조치해야 할 품질 안정화 방안 (예: 공정 치우침 보정, 설비 조건 최적화 등)
 
-        전문적이고 객관적인 어조로 현장 실무자가 바로 이해할 수 있도록 Markdown 포맷을 활용해 가독성 있게 작성해주세요.
+        전문적이고 객관적인 어조로, 현장 실무자가 바로 이해할 수 있도록 Markdown 포맷(글머리기호, 굵은 글씨 등)을 활용해 가독성 있게 작성해주세요.
         `;
 
         const reportArea = document.getElementById('aiReportArea');
@@ -242,6 +244,7 @@
             if(data.error) throw new Error(data.error.message);
             
             const aiText = data.candidates[0].content.parts[0].text;
+            // marked.js를 통해 마크다운을 HTML로 변환하여 출력
             reportContent.innerHTML = marked.parse(aiText);
         } catch(err) {
             reportContent.innerHTML = `<span style="color:red; font-weight:bold;">❌ API 호출 중 오류가 발생했습니다: ${err.message}</span><br><br>API 키가 정확한지 확인해 주세요.`;
@@ -363,8 +366,11 @@
             if (globalCategories[selected].usl !== null) document.getElementById('usl').value = globalCategories[selected].usl;
             if (globalCategories[selected].lsl !== null) document.getElementById('lsl').value = globalCategories[selected].lsl;
         }
+        
+        // 카테고리 변경 시 AI 리포트 영역 초기화 및 숨김 처리
         document.getElementById('aiReportArea').classList.add('hidden');
         document.getElementById('aiReportContent').innerHTML = '';
+        
         updateDashboard();
     });
 
@@ -399,12 +405,12 @@
             document.getElementById('allCategoriesView').classList.remove('hidden');
             document.getElementById('chartTypeGroup').classList.add('hidden');
             document.getElementById('subgroupSizeGroup').classList.add('hidden');
-            document.getElementById('aiControlsGroup').classList.add('hidden'); 
+            document.getElementById('aiControlsGroup').classList.add('hidden'); // ALL 모드에서는 AI 분석 숨김
         } else {
             document.getElementById('singleCategoryView').classList.remove('hidden');
             document.getElementById('allCategoriesView').classList.add('hidden');
             document.getElementById('chartTypeGroup').classList.remove('hidden');
-            document.getElementById('aiControlsGroup').classList.remove('hidden'); 
+            document.getElementById('aiControlsGroup').classList.remove('hidden'); // 단일 모드일때 표시
             
             if(chartType === 'Xbar-R') {
                 document.getElementById('subgroupSizeGroup').classList.remove('hidden');
