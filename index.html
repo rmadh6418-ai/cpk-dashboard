@@ -16,8 +16,9 @@
         input, select { padding: 8px; border: 1px solid #ced4da; border-radius: 4px; min-width: 120px; box-sizing: border-box; }
         input[type="file"] { min-width: 200px; }
         
+        /* 🔥 AI 컨트롤 전용 스타일 */
         .ai-controls { background: #e3f2fd; border: 1px solid #90caf9; }
-        .ai-btn { background: #1565c0; color: white; border: none; padding: 12px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; font-size: 15px;}
+        .ai-btn { background: #1565c0; color: white; border: none; padding: 10px 15px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; min-width: 220px; font-size: 14px;}
         .ai-btn:hover { background: #0d47a1; }
         
         .metrics-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 15px; margin-bottom: 25px; }
@@ -26,6 +27,7 @@
         .metric-card h3 { margin: 0 0 8px 0; font-size: 13px; color: #495057; }
         .metric-card p { margin: 0; font-size: 20px; font-weight: bold; color: #212529; }
         
+        /* 🔥 AI 리포트 영역 스타일 */
         #aiReportArea { margin-bottom: 25px; background: #f8f9fa; border-left: 5px solid #1565c0; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
         #aiReportContent { font-size: 14px; line-height: 1.6; color: #343a40; }
         #aiReportContent h1, #aiReportContent h2, #aiReportContent h3 { color: #1864ab; margin-top: 15px; margin-bottom: 10px; }
@@ -41,6 +43,7 @@
 
         .hidden { display: none !important; }
 
+        /* 🔥 로그인 화면 CSS */
         #loginOverlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: #e9ecef; display: flex; justify-content: center; align-items: center;
@@ -107,10 +110,14 @@
         </div>
     </div>
 
-    <!-- 🔥 API 키 입력창 삭제. 분석 실행 버튼만 배치 -->
+    <!-- 🔥 API 키 입력 영역 복구 -->
     <div class="controls ai-controls" id="aiControlsGroup">
-        <div class="control-group" style="width: 100%; align-items: center;">
-            <button onclick="generateAIReport()" class="ai-btn">🤖 6 Sigma 관점 AI 공정 능력 분석 리포트 생성</button>
+        <div class="control-group" style="flex: 1;">
+            <label style="color: #1565c0;">🔑 Gemini API 키 (최초 1회 입력 시 안전하게 로컬 자동 저장)</label>
+            <input type="password" id="geminiApiKey" placeholder="여기에 발급받은 API Key를 입력하세요">
+        </div>
+        <div class="control-group" style="justify-content: flex-end;">
+            <button onclick="generateAIReport()" class="ai-btn">🤖 6 Sigma 관점 AI 공정 능력 분석 실행</button>
         </div>
     </div>
 
@@ -163,15 +170,20 @@
         if (e.key === 'Enter') checkPassword();
     });
 
-    // 🔥 자동 빌드를 통해 치환될 API Key 변수 설정
+    // 🔥 페이지 로드 시 로컬스토리지에 저장된 API Key 불러오기
+    window.addEventListener('load', () => {
+        const savedKey = localStorage.getItem('gemini_api_key');
+        if (savedKey) document.getElementById('geminiApiKey').value = savedKey;
+    });
+
     async function generateAIReport() {
-        // GitHub Action 배포 시 "GITHUB_SECRET_GEMINI_API_KEY" 글자가 실제 API Key로 바뀝니다.
-        const apiKey = "GITHUB_SECRET_GEMINI_API_KEY";
-        
-        if(apiKey === "GITHUB_SECRET_GEMINI_API_KEY") {
-            alert('현재는 로컬 파일 상태입니다. GitHub Actions를 통해 정상 배포(Push)된 웹페이지에서만 AI가 작동합니다.');
+        // 🔥 화면에서 키를 읽어와서 저장 및 활용 (깃허브 시크릿 미사용)
+        const apiKey = document.getElementById('geminiApiKey').value.trim();
+        if(!apiKey) {
+            alert('💡 AI 분석을 위해 Gemini API 키를 입력해주세요!\n(Google AI Studio에서 무료 발급 가능합니다.)');
             return;
         }
+        localStorage.setItem('gemini_api_key', apiKey); // 로컬 스토리지에 자동 저장
 
         const selectedCategory = document.getElementById('categorySelect').value;
         if (selectedCategory === "ALL" || !globalCategories[selectedCategory]) {
@@ -232,11 +244,10 @@
             const aiText = data.candidates[0].content.parts[0].text;
             reportContent.innerHTML = marked.parse(aiText);
         } catch(err) {
-            reportContent.innerHTML = `<span style="color:red; font-weight:bold;">❌ API 호출 중 오류가 발생했습니다: ${err.message}</span>`;
+            reportContent.innerHTML = `<span style="color:red; font-weight:bold;">❌ API 호출 중 오류가 발생했습니다: ${err.message}</span><br><br>API 키가 정확한지 확인해 주세요.`;
         }
     }
 
-    // (이하 나머지 차트 및 엑셀 파싱 로직은 완전히 동일하므로 생략 없이 기존 코드 그대로 이어집니다)
     let globalCategories = {}; 
     let renderTimer = null; 
 
