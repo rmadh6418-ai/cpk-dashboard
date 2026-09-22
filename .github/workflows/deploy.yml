@@ -13,14 +13,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v3
 
-      # 1. Secrets에 저장된 API 키를 불러와서 HTML 내부의 임시 텍스트를 실제 키로 치환합니다.
-      - name: Inject Gemini API Key
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
-          sed -i "s/GITHUB_SECRET_GEMINI_API_KEY/${GEMINI_API_KEY}/g" index.html
-
-      # 2. 키가 치환된 최종 결과물만 gh-pages 브랜치로 배포합니다.
+      # 🔑 복잡한 API 주입 로직을 삭제하고 순수하게 HTML 파일만 배포합니다.
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
